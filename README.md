@@ -64,7 +64,7 @@ der **nur den Ordner `gezeiten-app`** braucht (kein Build, kein Server nötig):
 - **Farben/Aussehen**: ganz oben in `styles.css`, in den `:root { ... }`-Variablen
   (`--farbe-akzent` usw.). Es gibt auch einen automatischen Dunkelmodus-Block direkt darunter.
 - **App-Name**: in `index.html` (`<title>`) und in `manifest.webmanifest` (`"name"`/`"short_name"`).
-- **Icon**: liegt in `icons/`. Es wurde einfach generiert (Wellen auf blauem Verlauf) — ersetzbar
+- **Icon**: liegt im Projekt-Root. Es wurde einfach generiert (Wellen auf blauem Verlauf) — ersetzbar
   durch eigene PNG-Dateien in den gleichen Größen (192×192, 512×512, 512×512 maskable,
   180×180 für `apple-touch-icon.png`).
 - **Anzahl angezeigter Gezeiten**: `MAX_ANGEZEIGTE_EREIGNISSE` in `app.js`.
