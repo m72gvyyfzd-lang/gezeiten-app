@@ -11,8 +11,8 @@
 
     <!-- Damit die App wie ein "richtiges" App-Icon aufs iPhone/iPad-Homescreen gelegt werden kann -->
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="icon" href="icons/icon-192.png" />
-    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" href="icon-192.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Gezeiten" />
@@ -26,44 +26,94 @@
     </header>
 
     <main class="app-main">
-      <section class="karte station-picker">
-        <label for="station-input">Pegelstation</label>
-        <div class="station-suche">
-          <input
-            id="station-input"
-            type="text"
-            inputmode="search"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-            placeholder="Ort suchen, z. B. Cuxhaven"
-          />
-          <ul id="station-results" class="station-results" hidden></ul>
-        </div>
-      </section>
-
       <section id="status-banner" class="status-banner" hidden></section>
 
-      <p id="empty-state" class="empty-state">
-        Bitte oben eine Pegelstation auswählen, um die aktuelle Gezeitenvorhersage zu sehen.
-      </p>
-
-      <section id="tide-now" class="karte tide-now" hidden>
-        <div class="tide-now__zeile">
-          <span id="tide-direction-icon" class="tide-now__icon" aria-hidden="true"></span>
-          <div class="tide-now__text-block">
-            <p id="tide-direction-text" class="tide-now__text"></p>
-            <p id="tide-direction-time" class="tide-now__subtext"></p>
+      <section id="panel-suche" class="tab-panel" data-tab-panel="suche">
+        <section class="karte station-picker">
+          <label for="station-input">Pegelstation</label>
+          <div class="station-suche">
+            <input
+              id="station-input"
+              type="text"
+              inputmode="search"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="Ort suchen, z. B. Cuxhaven"
+            />
+            <ul id="station-results" class="station-results" hidden></ul>
           </div>
-        </div>
+        </section>
+
+        <p id="empty-state" class="empty-state">
+          Bitte oben eine Pegelstation auswählen, um die aktuelle Gezeitenvorhersage zu sehen.
+        </p>
+
+        <section id="tide-now" class="karte tide-now" hidden>
+          <div class="tide-now__zeile">
+            <span id="tide-direction-icon" class="tide-now__icon" aria-hidden="true"></span>
+            <div class="tide-now__text-block">
+              <p id="tide-direction-text" class="tide-now__text"></p>
+              <p id="tide-direction-time" class="tide-now__subtext"></p>
+            </div>
+          </div>
+        </section>
+
+        <section id="steuerung-karte" class="karte steuerung" hidden>
+          <button id="favorit-toggle" type="button" class="favorit-toggle" aria-pressed="false">
+            <span class="favorit-toggle__icon" aria-hidden="true">☆</span>
+            <span class="favorit-toggle__text">Als Favorit speichern</span>
+          </button>
+
+          <div class="zeitraum-auswahl" role="group" aria-label="Zeitraum">
+            <button type="button" class="zeitraum-btn" data-zeitraum="heute" aria-pressed="true">Heute</button>
+            <button type="button" class="zeitraum-btn" data-zeitraum="3tage" aria-pressed="false">3 Tage</button>
+            <button type="button" class="zeitraum-btn" data-zeitraum="1woche" aria-pressed="false">1 Woche</button>
+            <button type="button" class="zeitraum-btn" data-zeitraum="eigen" aria-pressed="false">
+              Eigener Zeitraum
+            </button>
+          </div>
+        </section>
+
+        <section id="tide-list-section" class="karte tide-list-section" hidden>
+          <h2>Nächste Gezeiten</h2>
+          <p id="tide-list-hinweis" class="tide-list-hinweis" hidden></p>
+          <div id="tide-list-container"></div>
+        </section>
       </section>
 
-      <section id="tide-list-section" class="karte tide-list-section" hidden>
-        <h2>Nächste Gezeiten</h2>
-        <ul id="tide-list" class="tide-list"></ul>
+      <section id="panel-favoriten" class="tab-panel" data-tab-panel="favoriten" hidden>
+        <p id="favoriten-empty-state" class="empty-state">
+          Noch keine Favoriten. Wähle im Tab „Suche" eine Station aus und tippe auf „Als Favorit speichern".
+        </p>
+        <ul id="favoriten-liste" class="favoriten-liste"></ul>
       </section>
     </main>
+
+    <dialog id="zeitraum-dialog" class="zeitraum-dialog">
+      <form id="zeitraum-form" class="zeitraum-dialog__form">
+        <h2>Eigener Zeitraum</h2>
+        <label for="zeitraum-von">Von</label>
+        <input type="date" id="zeitraum-von" required />
+        <label for="zeitraum-bis">Bis</label>
+        <input type="date" id="zeitraum-bis" required />
+        <p id="zeitraum-dialog-fehler" class="zeitraum-dialog__fehler" hidden></p>
+        <div class="zeitraum-dialog__aktionen">
+          <button type="button" id="zeitraum-abbrechen" class="btn-sekundaer">Abbrechen</button>
+          <button type="submit" class="btn-primaer">Anwenden</button>
+        </div>
+      </form>
+    </dialog>
+
+    <nav id="tab-bar" class="tab-bar">
+      <button type="button" class="tab-bar__btn" data-tab="suche" aria-pressed="true">
+        <span class="tab-bar__icon" aria-hidden="true">🔍</span><span class="tab-bar__label">Suche</span>
+      </button>
+      <button type="button" class="tab-bar__btn" data-tab="favoriten" aria-pressed="false">
+        <span class="tab-bar__icon" aria-hidden="true">★</span><span class="tab-bar__label">Favoriten</span>
+      </button>
+    </nav>
 
     <footer class="app-footer">
       <p id="updated-at"></p>
