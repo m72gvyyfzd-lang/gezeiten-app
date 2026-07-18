@@ -42,7 +42,7 @@ const el = {
   favoritenEmptyState: document.getElementById('favoriten-empty-state'),
 };
 
-/** @type {Map<string, {typ: 'HW'|'NW', zeit: Date}[]>} */
+/** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date}[], kurve: {zeit: Date, wert: number, quelle: 'messung'|'vorhersage'}[]}>} */
 let stationen = new Map();
 let ausgewaehlteStation = null;
 let letzteAktualisierung = null;
@@ -83,7 +83,16 @@ async function ladeVonBsh() {
       .filter((e) => e.event === 'HW' || e.event === 'NW')
       .map((e) => ({ typ: e.event, zeit: parseBshZeitstempel(e.event_timestamp) }))
       .sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
-    if (ereignisse.length > 0) neueStationen.set(label, ereignisse);
+    const kurve = (feature.properties?.curve || [])
+      .map((p) => {
+        const zeit = parseBshZeitstempel(p.timestamp);
+        if (p.measurement != null) return { zeit, wert: Number(p.measurement), quelle: 'messung' };
+        if (p.automated_curve_forecast != null) return { zeit, wert: Number(p.automated_curve_forecast), quelle: 'vorhersage' };
+        return null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
+    if (ereignisse.length > 0) neueStationen.set(label, { ereignisse, kurve });
   }
   if (neueStationen.size === 0) {
     throw new Error('BSH-Antwort enthielt keine verwertbaren Stationsdaten.');
@@ -95,9 +104,10 @@ async function ladeVonBsh() {
 
 function stationenZuJson(map) {
   return JSON.stringify(
-    Array.from(map.entries()).map(([label, ereignisse]) => [
+    Array.from(map.entries()).map(([label, daten]) => [
       label,
-      ereignisse.map((e) => ({ typ: e.typ, zeit: e.zeit.toISOString() })),
+      daten.ereignisse.map((e) => ({ typ: e.typ, zeit: e.zeit.toISOString() })),
+      daten.kurve.map((p) => ({ wert: p.wert, quelle: p.quelle, zeit: p.zeit.toISOString() })),
     ]),
   );
 }
@@ -105,9 +115,12 @@ function stationenZuJson(map) {
 function stationenAusJson(text) {
   const rows = JSON.parse(text);
   return new Map(
-    rows.map(([label, ereignisse]) => [
+    rows.map(([label, ereignisse, kurve]) => [
       label,
-      ereignisse.map((e) => ({ typ: e.typ, zeit: new Date(e.zeit) })),
+      {
+        ereignisse: ereignisse.map((e) => ({ typ: e.typ, zeit: new Date(e.zeit) })),
+        kurve: (kurve || []).map((p) => ({ wert: p.wert, quelle: p.quelle, zeit: new Date(p.zeit) })),
+      },
     ]),
   );
 }
@@ -473,7 +486,7 @@ function renderSucheTab() {
     zeigeLeerenZustandSuche();
     return;
   }
-  const ereignisse = stationen.get(ausgewaehlteStation) || [];
+  const ereignisse = stationen.get(ausgewaehlteStation)?.ereignisse || [];
   const jetzt = new Date();
 
   verstecke(el.emptyState);
@@ -563,13 +576,33 @@ function ermittleRollierendesFenster(ereignisse, jetzt) {
   return ereignisse.filter((e) => e.zeit.getTime() >= jetzt.getTime() && e.zeit.getTime() <= ende);
 }
 
-function renderWasserstandFuerKarte(_label) {
-  // Platzhalter: numerische Wasserstandswerte (cm/m) sind ein separater Folge-Task,
-  // sobald die Datenquelle geklärt ist. Struktur so gebaut, dass sie sich ohne
-  // Layout-Änderung befüllen lässt.
+function ermittleAktuellenWasserstand(kurve, jetzt) {
+  if (!kurve || kurve.length === 0) return null;
+  let naechster = kurve[0];
+  let kleinsteDifferenz = Math.abs(naechster.zeit.getTime() - jetzt.getTime());
+  for (const punkt of kurve) {
+    const differenz = Math.abs(punkt.zeit.getTime() - jetzt.getTime());
+    if (differenz < kleinsteDifferenz) {
+      kleinsteDifferenz = differenz;
+      naechster = punkt;
+    }
+  }
+  return naechster;
+}
+
+function renderWasserstandFuerKarte(label) {
   const div = document.createElement('div');
-  div.className = 'favoriten-karte__wasserstand favoriten-karte__wasserstand--platzhalter';
-  div.textContent = '—';
+  const daten = stationen.get(label);
+  const punkt = daten ? ermittleAktuellenWasserstand(daten.kurve, new Date()) : null;
+  if (!punkt) {
+    div.className = 'favoriten-karte__wasserstand favoriten-karte__wasserstand--platzhalter';
+    div.textContent = '—';
+    return div;
+  }
+  const meter = (punkt.wert / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const quelleText = punkt.quelle === 'messung' ? 'gemessen' : 'Vorhersage';
+  div.className = 'favoriten-karte__wasserstand';
+  div.textContent = `🌊 ${meter} m · ${quelleText}`;
   return div;
 }
 
@@ -593,7 +626,7 @@ function baueFavoritenKarte(label, jetzt) {
 
   li.appendChild(renderWasserstandFuerKarte(label));
 
-  const ereignisse = stationen.get(label) || [];
+  const ereignisse = stationen.get(label)?.ereignisse || [];
   if (ereignisse.length === 0) {
     const hinweis = document.createElement('p');
     hinweis.className = 'favoriten-karte__hinweis';
