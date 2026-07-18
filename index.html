@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Gezeiten</title>
+    <meta
+      name="description"
+      content="Aktuelle Gezeitenvorhersagen (Hochwasser/Niedrigwasser) für die deutsche Nordsee- und Ostseeküste."
+    />
+
+    <!-- Damit die App wie ein "richtiges" App-Icon aufs iPhone/iPad-Homescreen gelegt werden kann -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Gezeiten" />
+    <meta name="theme-color" content="#0b3d63" />
+
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1><span aria-hidden="true">🌊</span> Gezeiten</h1>
+    </header>
+
+    <main class="app-main">
+      <section class="karte station-picker">
+        <label for="station-input">Pegelstation</label>
+        <div class="station-suche">
+          <input
+            id="station-input"
+            type="text"
+            inputmode="search"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="Ort suchen, z. B. Cuxhaven"
+          />
+          <ul id="station-results" class="station-results" hidden></ul>
+        </div>
+      </section>
+
+      <section id="status-banner" class="status-banner" hidden></section>
+
+      <p id="empty-state" class="empty-state">
+        Bitte oben eine Pegelstation auswählen, um die aktuelle Gezeitenvorhersage zu sehen.
+      </p>
+
+      <section id="tide-now" class="karte tide-now" hidden>
+        <div class="tide-now__zeile">
+          <span id="tide-direction-icon" class="tide-now__icon" aria-hidden="true"></span>
+          <div class="tide-now__text-block">
+            <p id="tide-direction-text" class="tide-now__text"></p>
+            <p id="tide-direction-time" class="tide-now__subtext"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tide-list-section" class="karte tide-list-section" hidden>
+        <h2>Nächste Gezeiten</h2>
+        <ul id="tide-list" class="tide-list"></ul>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p id="updated-at"></p>
+      <p class="quelle">
+        Datenquelle: <a href="https://www.bsh.de" target="_blank" rel="noopener">BSH</a> – Wasserstandsvorhersage
+        (CC BY 4.0)
+      </p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
