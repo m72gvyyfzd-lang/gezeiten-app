@@ -1,7 +1,7 @@
 // Cached nur die App selbst (HTML/CSS/JS/Icons), damit die App auch offline
 // sofort öffnet. Die BSH-Live-Daten laufen bewusst NICHT über den Cache,
 // damit immer die aktuelle Vorhersage geladen wird, sobald Internet da ist.
-const CACHE_NAME = 'gezeiten-app-v1';
+const CACHE_NAME = 'gezeiten-app-v2';
 const APP_SHELL = [
   './',
   './index.html',
