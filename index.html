@@ -50,16 +50,6 @@
           Bitte oben eine Pegelstation auswählen, um die aktuelle Gezeitenvorhersage zu sehen.
         </p>
 
-        <section id="tide-now" class="karte tide-now" hidden>
-          <div class="tide-now__zeile">
-            <span id="tide-direction-icon" class="tide-now__icon" aria-hidden="true"></span>
-            <div class="tide-now__text-block">
-              <p id="tide-direction-text" class="tide-now__text"></p>
-              <p id="tide-direction-time" class="tide-now__subtext"></p>
-            </div>
-          </div>
-        </section>
-
         <section id="steuerung-karte" class="karte steuerung" hidden>
           <button id="favorit-toggle" type="button" class="favorit-toggle" aria-pressed="false">
             <span class="favorit-toggle__icon" aria-hidden="true">☆</span>
@@ -76,6 +66,16 @@
           </div>
         </section>
 
+        <section id="tide-now" class="karte tide-now" hidden>
+          <div class="tide-now__zeile">
+            <span id="tide-direction-icon" class="tide-now__icon" aria-hidden="true"></span>
+            <div class="tide-now__text-block">
+              <p id="tide-direction-text" class="tide-now__text"></p>
+              <p id="tide-direction-time" class="tide-now__subtext"></p>
+            </div>
+          </div>
+        </section>
+
         <section id="tide-list-section" class="karte tide-list-section" hidden>
           <h2>Nächste Gezeiten</h2>
           <p id="tide-list-hinweis" class="tide-list-hinweis" hidden></p>
@@ -89,15 +89,34 @@
         </p>
         <ul id="favoriten-liste" class="favoriten-liste"></ul>
       </section>
+
+      <section id="panel-brunsbuettel" class="tab-panel" data-tab-panel="brunsbuettel" hidden>
+        <section class="karte brunsbuettel-info">
+          <h2 id="brunsbuettel-titel"></h2>
+          <dl class="brunsbuettel-info__werte">
+            <div><dt>MHW</dt><dd id="brunsbuettel-mhw">—</dd></div>
+            <div><dt>MNW</dt><dd id="brunsbuettel-mnw">—</dd></div>
+          </dl>
+          <div class="brunsbuettel-tfg">
+            <label for="brunsbuettel-tfg-input">Tfg (m)</label>
+            <input type="number" id="brunsbuettel-tfg-input" step="0.01" min="0.5" max="3.5" inputmode="decimal" />
+          </div>
+          <p id="brunsbuettel-tfg-fehler" class="zeitraum-dialog__fehler" hidden></p>
+        </section>
+        <section class="karte brunsbuettel-chart-karte">
+          <h2>Wasserstandskurve</h2>
+          <div id="brunsbuettel-chart-container"></div>
+        </section>
+      </section>
     </main>
 
-    <dialog id="zeitraum-dialog" class="zeitraum-dialog">
-      <form id="zeitraum-form" class="zeitraum-dialog__form">
+    <dialog id="zeitraum-dialog" class="app-dialog zeitraum-dialog">
+      <form id="zeitraum-form" class="zeitraum-dialog__form" novalidate>
         <h2>Eigener Zeitraum</h2>
         <label for="zeitraum-von">Von</label>
-        <input type="date" id="zeitraum-von" required />
+        <input type="date" id="zeitraum-von" />
         <label for="zeitraum-bis">Bis</label>
-        <input type="date" id="zeitraum-bis" required />
+        <input type="date" id="zeitraum-bis" />
         <p id="zeitraum-dialog-fehler" class="zeitraum-dialog__fehler" hidden></p>
         <div class="zeitraum-dialog__aktionen">
           <button type="button" id="zeitraum-abbrechen" class="btn-sekundaer">Abbrechen</button>
@@ -106,12 +125,27 @@
       </form>
     </dialog>
 
+    <dialog id="favoriten-dialog" class="app-dialog favoriten-dialog">
+      <div class="favoriten-dialog__kopf">
+        <h2 id="favoriten-dialog-titel"></h2>
+        <button type="button" id="favoriten-dialog-schliessen" class="btn-sekundaer" aria-label="Schließen">✕</button>
+      </div>
+      <div id="favoriten-dialog-wasserstand"></div>
+      <button type="button" id="favoriten-dialog-entfernen" class="favoriten-karte__entfernen favoriten-dialog__entfernen">
+        ★ Favorit entfernen
+      </button>
+      <div id="favoriten-dialog-liste"></div>
+    </dialog>
+
     <nav id="tab-bar" class="tab-bar">
       <button type="button" class="tab-bar__btn" data-tab="suche" aria-pressed="true">
         <span class="tab-bar__icon" aria-hidden="true">🔍</span><span class="tab-bar__label">Suche</span>
       </button>
       <button type="button" class="tab-bar__btn" data-tab="favoriten" aria-pressed="false">
         <span class="tab-bar__icon" aria-hidden="true">★</span><span class="tab-bar__label">Favoriten</span>
+      </button>
+      <button type="button" class="tab-bar__btn" data-tab="brunsbuettel" aria-pressed="false">
+        <span class="tab-bar__icon" aria-hidden="true">⚓</span><span class="tab-bar__label">Brunsbüttel</span>
       </button>
     </nav>
 

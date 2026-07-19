@@ -302,9 +302,9 @@ body {
   color: #fff;
 }
 
-/* ---------- Eigener-Zeitraum-Dialog (1.3.3) ---------- */
+/* ---------- Gemeinsames Dialog-Chrome ---------- */
 
-.zeitraum-dialog {
+.app-dialog {
   border: none;
   border-radius: 1rem;
   padding: 0;
@@ -314,9 +314,11 @@ body {
   width: min(22rem, calc(100vw - 2.5rem));
 }
 
-.zeitraum-dialog::backdrop {
+.app-dialog::backdrop {
   background: rgba(10, 22, 32, 0.45);
 }
+
+/* ---------- Eigener-Zeitraum-Dialog (1.3.3) ---------- */
 
 .zeitraum-dialog__form {
   display: flex;
@@ -453,6 +455,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.tide-list__wert {
+  flex: none;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--farbe-text-schwach);
+  text-align: right;
+}
+
 /* ---------- Favoriten (Tab 2) ---------- */
 
 .favoriten-liste {
@@ -506,6 +516,55 @@ body {
   margin: 0;
   color: var(--farbe-text-schwach);
   font-size: 0.88rem;
+}
+
+.favoriten-karte--kompakt {
+  cursor: pointer;
+}
+
+.favoriten-karte--kompakt:focus-visible {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: 2px;
+}
+
+.favoriten-karte--kompakt .tide-list li {
+  padding: 0.3rem 0;
+  border-bottom: none;
+}
+
+/* ---------- Favoriten-Detail-Dialog ---------- */
+
+.favoriten-dialog {
+  width: min(26rem, calc(100vw - 2.5rem));
+  max-height: min(34rem, calc(100vh - 4rem));
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.favoriten-dialog__kopf {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.favoriten-dialog__kopf h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.favoriten-dialog__entfernen {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  justify-content: center;
+  border: 1px solid var(--farbe-rand);
+  border-radius: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0.6rem 0 0.8rem;
 }
 
 /* ---------- Tab-Leiste ---------- */
@@ -564,4 +623,78 @@ body {
 
 .app-footer a {
   color: inherit;
+}
+
+/* ---------- Tab 3: Brunsbüttel ---------- */
+
+.brunsbuettel-info__werte {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0.5rem 0;
+  padding: 0;
+}
+
+.brunsbuettel-info__werte dt {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--farbe-text-schwach);
+}
+
+.brunsbuettel-info__werte dd {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.brunsbuettel-tfg {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.brunsbuettel-tfg label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--farbe-text-schwach);
+}
+
+.brunsbuettel-tfg input {
+  width: 5rem;
+  font-size: 1rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--farbe-rand);
+  background: var(--farbe-hintergrund);
+  color: var(--farbe-text);
+}
+
+#brunsbuettel-chart-container svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-linie {
+  stroke-width: 2;
+}
+
+.chart-linie--messung {
+  stroke: var(--farbe-akzent);
+}
+
+.chart-linie--vorhersage {
+  stroke: var(--farbe-akzent-dunkel);
+  stroke-dasharray: 4 3;
+}
+
+.chart-referenzlinie {
+  stroke: var(--farbe-fallend);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-achse-text {
+  fill: var(--farbe-text-schwach);
+  font-size: 8px;
 }

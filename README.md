@@ -4,8 +4,9 @@ Eine kleine, eigenständige Web-App, die aktuelle Gezeitenvorhersagen (Hochwasse
 für Stationen an der deutschen Nordsee- und Ostseeküste anzeigt — installierbar auf iPhone/iPad
 als App-Icon auf dem Homescreen.
 
-Zwei Tabs: **Suche** (Station suchen, Zeitraum wählen, als Favorit speichern) und **Favoriten**
-(gespeicherte Stationen mit den nächsten Gezeiten auf einen Blick).
+Drei Tabs: **Suche** (Station suchen, Zeitraum wählen, als Favorit speichern), **Favoriten**
+(gespeicherte Stationen kompakt, Tippen öffnet die 5-Tage-Vorhersage) und **Brunsbüttel**
+(fest eingestellte Station mit Stammdaten, Tiefgang-Eingabe und Wasserstandskurve).
 
 Sie besteht nur aus einfachen Dateien (HTML, CSS, JavaScript) — **kein** Node.js, kein Build-Schritt,
 keine npm-Pakete nötig. Das macht sie leicht verständlich und leicht anpassbar.
@@ -70,7 +71,10 @@ der **nur den Ordner `gezeiten-app`** braucht (kein Build, kein Server nötig):
 - **Icon**: liegt im Projekt-Root. Es wurde einfach generiert (Wellen auf blauem Verlauf) — ersetzbar
   durch eigene PNG-Dateien in den gleichen Größen (192×192, 512×512, 512×512 maskable,
   180×180 für `apple-touch-icon.png`).
-- **Zeitraum-Optionen** (Heute/3 Tage/1 Woche): `ZEITRAUM_TAGE` in `app.js`.
+- **Zeitraum-Optionen** (3 Tage/1 Woche): `ZEITRAUM_TAGE` in `app.js`.
+- **Brunsbüttel-Tab**: feste Station über `BRUNSBUETTEL_LABEL`, Referenzlinie über `PNP_REFERENZ_CM`
+  in `app.js`. Das Tfg-Eingabefeld (Tiefgang) wird aktuell nur validiert und gespeichert, fließt
+  noch in keine Berechnung ein.
 
 ## Bekannte Grenzen
 
