@@ -11,6 +11,10 @@ const ZEITRAUM_TAGE = { '3tage': 2, '1woche': 6 }; // Kalendertage NACH heute (3
 const STORAGE_KEY_STATION = 'gezeiten:letzteStation';
 const STORAGE_KEY_CACHE = 'gezeiten:cache';
 const STORAGE_KEY_FAVORITEN = 'gezeiten:favoriten';
+const STORAGE_KEY_TFG = 'gezeiten:tiefgang';
+
+const BRUNSBUETTEL_LABEL = 'Brunsbüttel, Elbe, Ost';
+const PNP_REFERENZ_CM = 450;
 
 const el = {
   input: document.getElementById('station-input'),
@@ -40,9 +44,21 @@ const el = {
   tabPanels: document.querySelectorAll('.tab-panel'),
   favoritenListe: document.getElementById('favoriten-liste'),
   favoritenEmptyState: document.getElementById('favoriten-empty-state'),
+  favoritenDialog: document.getElementById('favoriten-dialog'),
+  favoritenDialogTitel: document.getElementById('favoriten-dialog-titel'),
+  favoritenDialogWasserstand: document.getElementById('favoriten-dialog-wasserstand'),
+  favoritenDialogEntfernen: document.getElementById('favoriten-dialog-entfernen'),
+  favoritenDialogListe: document.getElementById('favoriten-dialog-liste'),
+  favoritenDialogSchliessen: document.getElementById('favoriten-dialog-schliessen'),
+  brunsbuettelTitel: document.getElementById('brunsbuettel-titel'),
+  brunsbuettelMhw: document.getElementById('brunsbuettel-mhw'),
+  brunsbuettelMnw: document.getElementById('brunsbuettel-mnw'),
+  brunsbuettelTfgInput: document.getElementById('brunsbuettel-tfg-input'),
+  brunsbuettelTfgFehler: document.getElementById('brunsbuettel-tfg-fehler'),
+  brunsbuettelChartContainer: document.getElementById('brunsbuettel-chart-container'),
 };
 
-/** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date}[], kurve: {zeit: Date, wert: number, quelle: 'messung'|'vorhersage'}[]}>} */
+/** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date, wert: number|null, delta: string|null}[], kurve: {zeit: Date, wert: number, quelle: 'messung'|'vorhersage'}[], mhw: number|null, mnw: number|null}>} */
 let stationen = new Map();
 let ausgewaehlteStation = null;
 let letzteAktualisierung = null;
@@ -51,12 +67,32 @@ let aktiverTab = 'suche';
 let aktiverZeitraumTyp = 'heute'; // 'heute' | '3tage' | '1woche' | 'eigen'
 let eigenerZeitraum = null; // {von: Date, bis: Date} | null — für Dialog-Vorbefüllung beim erneuten Öffnen
 let favoriten = new Set();
+let favoritenDialogLabel = null;
 
 // ---------- Daten laden (BSH) ----------
 
 function parseBshZeitstempel(roh) {
   // BSH liefert "2026-07-02 13:54:00+02:00" — Leerzeichen statt "T" vor der Uhrzeit.
   return new Date(roh.replace(' ', 'T'));
+}
+
+function ermittleWertUndDelta(e) {
+  // Prioritätskette: naheliegende Wettervorhersage > Modell-Ensemble-Vorhersage (r0) > reine
+  // astronomische Basisvorhersage (dann ohne Delta, da sie selbst die Referenz ist).
+  // mos_forecast_r1..r5 existieren in der Rohantwort, werden hier bewusst nicht genutzt.
+  if (e.forecast_value != null) {
+    const wert = Number(e.forecast_value);
+    if (Number.isFinite(wert)) return { wert, delta: e.forecast_deviation ?? null };
+  }
+  if (e.mos_forecast_r0_value != null) {
+    const wert = Number(e.mos_forecast_r0_value);
+    if (Number.isFinite(wert)) return { wert, delta: e.mos_forecast_r0_deviation ?? null };
+  }
+  if (e.tidal_prediction_value != null) {
+    const wert = Number(e.tidal_prediction_value);
+    if (Number.isFinite(wert)) return { wert, delta: null };
+  }
+  return { wert: null, delta: null };
 }
 
 async function ladeVonBsh() {
@@ -81,7 +117,7 @@ async function ladeVonBsh() {
     if (!label || rohEreignisse.length === 0) continue;
     const ereignisse = rohEreignisse
       .filter((e) => e.event === 'HW' || e.event === 'NW')
-      .map((e) => ({ typ: e.event, zeit: parseBshZeitstempel(e.event_timestamp) }))
+      .map((e) => ({ typ: e.event, zeit: parseBshZeitstempel(e.event_timestamp), ...ermittleWertUndDelta(e) }))
       .sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
     const kurve = (feature.properties?.curve || [])
       .map((p) => {
@@ -92,7 +128,9 @@ async function ladeVonBsh() {
       })
       .filter(Boolean)
       .sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
-    if (ereignisse.length > 0) neueStationen.set(label, { ereignisse, kurve });
+    const mhw = feature.properties?.mean_high_water != null ? Number(feature.properties.mean_high_water) : null;
+    const mnw = feature.properties?.mean_low_water != null ? Number(feature.properties.mean_low_water) : null;
+    if (ereignisse.length > 0) neueStationen.set(label, { ereignisse, kurve, mhw, mnw });
   }
   if (neueStationen.size === 0) {
     throw new Error('BSH-Antwort enthielt keine verwertbaren Stationsdaten.');
@@ -106,8 +144,9 @@ function stationenZuJson(map) {
   return JSON.stringify(
     Array.from(map.entries()).map(([label, daten]) => [
       label,
-      daten.ereignisse.map((e) => ({ typ: e.typ, zeit: e.zeit.toISOString() })),
+      daten.ereignisse.map((e) => ({ typ: e.typ, zeit: e.zeit.toISOString(), wert: e.wert, delta: e.delta })),
       daten.kurve.map((p) => ({ wert: p.wert, quelle: p.quelle, zeit: p.zeit.toISOString() })),
+      { mhw: daten.mhw ?? null, mnw: daten.mnw ?? null },
     ]),
   );
 }
@@ -115,11 +154,18 @@ function stationenZuJson(map) {
 function stationenAusJson(text) {
   const rows = JSON.parse(text);
   return new Map(
-    rows.map(([label, ereignisse, kurve]) => [
+    rows.map(([label, ereignisse, kurve, meta]) => [
       label,
       {
-        ereignisse: ereignisse.map((e) => ({ typ: e.typ, zeit: new Date(e.zeit) })),
+        ereignisse: ereignisse.map((e) => ({
+          typ: e.typ,
+          zeit: new Date(e.zeit),
+          wert: e.wert ?? null,
+          delta: e.delta ?? null,
+        })),
         kurve: (kurve || []).map((p) => ({ wert: p.wert, quelle: p.quelle, zeit: new Date(p.zeit) })),
+        mhw: meta?.mhw ?? null,
+        mnw: meta?.mnw ?? null,
       },
     ]),
   );
@@ -158,6 +204,25 @@ function ladeFavoriten() {
 function speichereFavoriten(set) {
   try {
     localStorage.setItem(STORAGE_KEY_FAVORITEN, JSON.stringify(Array.from(set)));
+  } catch {
+    // localStorage kann z. B. im privaten Modus fehlschlagen — dann eben ohne Persistenz.
+  }
+}
+
+function ladeTiefgang() {
+  try {
+    const text = localStorage.getItem(STORAGE_KEY_TFG);
+    if (!text) return null;
+    const wert = Number(text);
+    return Number.isFinite(wert) ? wert : null;
+  } catch {
+    return null;
+  }
+}
+
+function speichereTiefgang(wert) {
+  try {
+    localStorage.setItem(STORAGE_KEY_TFG, String(wert));
   } catch {
     // localStorage kann z. B. im privaten Modus fehlschlagen — dann eben ohne Persistenz.
   }
@@ -213,6 +278,16 @@ function formatiereTagesTitel(zeit, jetzt) {
   if (istGleicherTag(zeit, jetzt)) return 'Heute';
   if (istGleicherTag(zeit, morgen)) return 'Morgen';
   return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(zeit);
+}
+
+function formatiereMeter(cmWert) {
+  return (cmWert / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m';
+}
+
+function formatiereWertUndDelta(ereignis) {
+  if (ereignis.wert == null || !Number.isFinite(ereignis.wert)) return null;
+  const meter = formatiereMeter(ereignis.wert);
+  return ereignis.delta ? `${meter} (${ereignis.delta})` : meter;
 }
 
 function aktualisiereFussnote() {
@@ -274,6 +349,16 @@ function ermittleAbdeckungsHinweis(ereignisse, zeitraum) {
   return null;
 }
 
+function ermittleDatengrenzen(label) {
+  const daten = stationen.get(label);
+  if (!daten) return null;
+  const zeiten = [];
+  for (const e of daten.ereignisse) zeiten.push(e.zeit.getTime());
+  for (const p of daten.kurve) zeiten.push(p.zeit.getTime());
+  if (zeiten.length === 0) return null;
+  return { spaeteste: new Date(Math.max(...zeiten)) };
+}
+
 function zuDateInputWert(datum) {
   const jahr = datum.getFullYear();
   const monat = String(datum.getMonth() + 1).padStart(2, '0');
@@ -287,6 +372,17 @@ function ausDateInputWert(text) {
 }
 
 function oeffneZeitraumDialog() {
+  const heute = startDesTages(new Date());
+  el.zeitraumVon.min = zuDateInputWert(heute);
+  el.zeitraumBis.min = zuDateInputWert(heute);
+  const grenzen = ermittleDatengrenzen(ausgewaehlteStation);
+  if (grenzen) {
+    el.zeitraumVon.max = zuDateInputWert(grenzen.spaeteste);
+    el.zeitraumBis.max = zuDateInputWert(grenzen.spaeteste);
+  } else {
+    el.zeitraumVon.removeAttribute('max');
+    el.zeitraumBis.removeAttribute('max');
+  }
   const basis = eigenerZeitraum ?? { von: new Date(), bis: new Date() };
   el.zeitraumVon.value = zuDateInputWert(basis.von);
   el.zeitraumBis.value = zuDateInputWert(basis.bis);
@@ -313,6 +409,11 @@ function handleZeitraumAnwenden(e) {
   const bis = ausDateInputWert(el.zeitraumBis.value);
   if (bis.getTime() < von.getTime()) {
     zeigeZeitraumFehler('Das Enddatum darf nicht vor dem Startdatum liegen.');
+    return;
+  }
+  const grenzen = ermittleDatengrenzen(ausgewaehlteStation);
+  if (grenzen && von.getTime() > grenzen.spaeteste.getTime()) {
+    zeigeZeitraumFehler('Für diesen Zeitraum liegt noch keine BSH-Vorhersage vor. Bitte ein früheres Datum wählen.');
     return;
   }
   eigenerZeitraum = { von, bis };
@@ -360,6 +461,8 @@ function wechsleTab(tabName) {
   });
   verstecke(el.results);
   if (el.zeitraumDialog.open) el.zeitraumDialog.close();
+  if (el.favoritenDialog.open) el.favoritenDialog.close();
+  if (tabName === 'brunsbuettel') renderBrunsbuettelTab();
 }
 
 function initTabNavigation() {
@@ -398,7 +501,7 @@ function initFavoritToggle() {
   el.favoritToggle.addEventListener('click', () => toggleFavorit(ausgewaehlteStation));
 }
 
-// ---------- Gemeinsamer Listeneintrag (Tab 1 + Tab 2) ----------
+// ---------- Gemeinsame Listen-Bausteine (Tab 1 + Tab 2) ----------
 
 function baueEreignisEintrag(ereignis, { vergangen = false } = {}) {
   const li = document.createElement('li');
@@ -414,7 +517,49 @@ function baueEreignisEintrag(ereignis, { vergangen = false } = {}) {
   zeit.textContent = formatiereKompakt(ereignis.zeit);
 
   li.append(badge, zeit);
+
+  const wertText = formatiereWertUndDelta(ereignis);
+  if (wertText) {
+    const wert = document.createElement('span');
+    wert.className = 'tide-list__wert';
+    wert.textContent = wertText;
+    li.appendChild(wert);
+  }
   return li;
+}
+
+function baueLeereListenHinweis(text) {
+  const p = document.createElement('p');
+  p.className = 'empty-state';
+  p.textContent = text;
+  return p;
+}
+
+function baueFlacheListe(ereignisse, jetzt) {
+  const liste = document.createElement('ul');
+  liste.className = 'tide-list';
+  for (const ereignis of ereignisse) {
+    liste.appendChild(baueEreignisEintrag(ereignis, { vergangen: ereignis.zeit.getTime() < jetzt.getTime() }));
+  }
+  return liste;
+}
+
+function baueGruppierteListe(ereignisse, jetzt) {
+  const container = document.createElement('div');
+  for (const gruppe of gruppiereNachTag(ereignisse, jetzt)) {
+    const block = document.createElement('div');
+    block.className = 'tide-tag-gruppe';
+    const titel = document.createElement('h3');
+    titel.className = 'tide-tag-gruppe__titel';
+    titel.textContent = gruppe.titel;
+    block.append(titel, baueFlacheListe(gruppe.ereignisse, jetzt));
+    container.appendChild(block);
+  }
+  return container;
+}
+
+function naechstesEreignis(ereignisse, jetzt) {
+  return ereignisse.find((e) => e.zeit.getTime() > jetzt.getTime());
 }
 
 // ---------- Tab 1: Suche ----------
@@ -427,7 +572,7 @@ function zeigeLeerenZustandSuche() {
 }
 
 function renderSchnellinfo(ereignisse, jetzt) {
-  const kommendes = ereignisse.find((e) => e.zeit.getTime() > jetzt.getTime());
+  const kommendes = naechstesEreignis(ereignisse, jetzt);
   if (!kommendes) {
     verstecke(el.tideNow);
     return;
@@ -438,7 +583,37 @@ function renderSchnellinfo(ereignisse, jetzt) {
   el.tideNow.classList.toggle('tide-now--fallend', !steigend);
   el.directionIcon.textContent = steigend ? '⬆️' : '⬇️';
   el.directionText.textContent = `Nächstes ${kommendes.typ}`;
-  el.directionTime.textContent = formatiereKompakt(kommendes.zeit);
+  const wertText = formatiereWertUndDelta(kommendes);
+  el.directionTime.textContent = wertText
+    ? `${formatiereKompakt(kommendes.zeit)}  ${wertText}`
+    : formatiereKompakt(kommendes.zeit);
+}
+
+function ermittleLetztesEreignis(ereignisse, jetzt) {
+  let letztes = null;
+  for (const ereignis of ereignisse) {
+    if (ereignis.zeit.getTime() >= jetzt.getTime()) break;
+    letztes = ereignis;
+  }
+  return letztes;
+}
+
+function ermittleRollierendesFenster(ereignisse, jetzt) {
+  const ende = jetzt.getTime() + 24 * 3600000;
+  return ereignisse.filter((e) => e.zeit.getTime() >= jetzt.getTime() && e.zeit.getTime() <= ende);
+}
+
+function renderHeuteListe(ereignisse, jetzt) {
+  el.listContainer.innerHTML = '';
+  el.listSection.hidden = false;
+  const anker = ermittleLetztesEreignis(ereignisse, jetzt);
+  const fenster = ermittleRollierendesFenster(ereignisse, jetzt);
+  const kombiniert = anker ? [anker, ...fenster] : fenster;
+  if (kombiniert.length === 0) {
+    el.listContainer.appendChild(baueLeereListenHinweis('Für diesen Zeitraum liegen keine Gezeiten in der BSH-Vorhersage vor.'));
+    return;
+  }
+  el.listContainer.appendChild(baueFlacheListe(kombiniert, jetzt));
 }
 
 function renderGezeitenListe(gefiltert, zeitraum, jetzt) {
@@ -446,39 +621,18 @@ function renderGezeitenListe(gefiltert, zeitraum, jetzt) {
   el.listSection.hidden = false;
 
   if (gefiltert.length === 0) {
-    const hinweis = document.createElement('p');
-    hinweis.className = 'empty-state';
-    hinweis.textContent = 'Für diesen Zeitraum liegen keine Gezeiten in der BSH-Vorhersage vor.';
-    el.listContainer.appendChild(hinweis);
+    el.listContainer.appendChild(baueLeereListenHinweis('Für diesen Zeitraum liegen keine Gezeiten in der BSH-Vorhersage vor.'));
     return;
   }
 
   const mehrereTage = !istGleicherTag(zeitraum.von, zeitraum.bis);
 
   if (!mehrereTage) {
-    const liste = document.createElement('ul');
-    liste.className = 'tide-list';
-    for (const ereignis of gefiltert) {
-      liste.appendChild(baueEreignisEintrag(ereignis, { vergangen: ereignis.zeit.getTime() < jetzt.getTime() }));
-    }
-    el.listContainer.appendChild(liste);
+    el.listContainer.appendChild(baueFlacheListe(gefiltert, jetzt));
     return;
   }
 
-  for (const gruppe of gruppiereNachTag(gefiltert, jetzt)) {
-    const block = document.createElement('div');
-    block.className = 'tide-tag-gruppe';
-    const titel = document.createElement('h3');
-    titel.className = 'tide-tag-gruppe__titel';
-    titel.textContent = gruppe.titel;
-    const liste = document.createElement('ul');
-    liste.className = 'tide-list';
-    for (const ereignis of gruppe.ereignisse) {
-      liste.appendChild(baueEreignisEintrag(ereignis, { vergangen: ereignis.zeit.getTime() < jetzt.getTime() }));
-    }
-    block.append(titel, liste);
-    el.listContainer.appendChild(block);
-  }
+  el.listContainer.appendChild(baueGruppierteListe(gefiltert, jetzt));
 }
 
 function renderSucheTab() {
@@ -494,6 +648,12 @@ function renderSucheTab() {
   aktualisiereFavoritToggle();
 
   renderSchnellinfo(ereignisse, jetzt);
+
+  if (aktiverZeitraumTyp === 'heute') {
+    renderHeuteListe(ereignisse, jetzt);
+    el.listHinweis.hidden = true;
+    return;
+  }
 
   const zeitraum = berechneZeitraum(aktiverZeitraumTyp, jetzt, eigenerZeitraum);
   const gefiltert = filtereEreignisseImZeitraum(ereignisse, zeitraum);
@@ -560,22 +720,6 @@ function initEreignisListener() {
 
 // ---------- Tab 2: Favoriten ----------
 
-function ermittleLetzteAnker(ereignisse, jetzt) {
-  let hw = null;
-  let nw = null;
-  for (const ereignis of ereignisse) {
-    if (ereignis.zeit.getTime() >= jetzt.getTime()) break;
-    if (ereignis.typ === 'HW') hw = ereignis;
-    else nw = ereignis;
-  }
-  return { hw, nw };
-}
-
-function ermittleRollierendesFenster(ereignisse, jetzt) {
-  const ende = jetzt.getTime() + 24 * 3600000;
-  return ereignisse.filter((e) => e.zeit.getTime() >= jetzt.getTime() && e.zeit.getTime() <= ende);
-}
-
 function ermittleAktuellenWasserstand(kurve, jetzt) {
   if (!kurve || kurve.length === 0) return null;
   let naechster = kurve[0];
@@ -599,16 +743,24 @@ function renderWasserstandFuerKarte(label) {
     div.textContent = '—';
     return div;
   }
-  const meter = (punkt.wert / 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const quelleText = punkt.quelle === 'messung' ? 'gemessen' : 'Vorhersage';
   div.className = 'favoriten-karte__wasserstand';
-  div.textContent = `🌊 ${meter} m · ${quelleText}`;
+  div.textContent = `🌊 ${formatiereMeter(punkt.wert)} · ${quelleText}`;
   return div;
 }
 
-function baueFavoritenKarte(label, jetzt) {
+function baueFavoritenKarteKompakt(label, jetzt) {
   const li = document.createElement('li');
-  li.className = 'karte favoriten-karte';
+  li.className = 'karte favoriten-karte favoriten-karte--kompakt';
+  li.tabIndex = 0;
+  li.setAttribute('role', 'button');
+  li.addEventListener('click', () => oeffneFavoritenDialog(label));
+  li.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      oeffneFavoritenDialog(label);
+    }
+  });
 
   const kopf = document.createElement('div');
   kopf.className = 'favoriten-karte__kopf';
@@ -620,43 +772,23 @@ function baueFavoritenKarte(label, jetzt) {
   entfernen.className = 'favoriten-karte__entfernen';
   entfernen.setAttribute('aria-label', `${label} aus Favoriten entfernen`);
   entfernen.textContent = '★';
-  entfernen.addEventListener('click', () => toggleFavorit(label));
+  entfernen.addEventListener('click', (e) => {
+    e.stopPropagation(); // sonst würde der Klick auch den Detail-Dialog öffnen
+    toggleFavorit(label);
+  });
   kopf.append(titel, entfernen);
   li.appendChild(kopf);
 
-  li.appendChild(renderWasserstandFuerKarte(label));
-
   const ereignisse = stationen.get(label)?.ereignisse || [];
-  if (ereignisse.length === 0) {
-    const hinweis = document.createElement('p');
-    hinweis.className = 'favoriten-karte__hinweis';
-    hinweis.textContent = 'Keine Gezeitendaten verfügbar.';
-    li.appendChild(hinweis);
-    return li;
+  const naechstes = naechstesEreignis(ereignisse, jetzt);
+  if (naechstes) {
+    const liste = document.createElement('ul');
+    liste.className = 'tide-list';
+    liste.appendChild(baueEreignisEintrag(naechstes));
+    li.appendChild(liste);
+  } else {
+    li.appendChild(baueLeereListenHinweis('Keine kommenden Gezeiten verfügbar.'));
   }
-
-  const { hw, nw } = ermittleLetzteAnker(ereignisse, jetzt);
-  const anker = [hw, nw].filter(Boolean).sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
-  const fenster = ermittleRollierendesFenster(ereignisse, jetzt);
-
-  if (anker.length === 0 && fenster.length === 0) {
-    const hinweis = document.createElement('p');
-    hinweis.className = 'favoriten-karte__hinweis';
-    hinweis.textContent = 'Für diese Station liegen aktuell keine Gezeitendaten im relevanten Zeitraum vor.';
-    li.appendChild(hinweis);
-    return li;
-  }
-
-  const liste = document.createElement('ul');
-  liste.className = 'tide-list';
-  for (const ereignis of anker) {
-    liste.appendChild(baueEreignisEintrag(ereignis, { vergangen: true }));
-  }
-  for (const ereignis of fenster) {
-    liste.appendChild(baueEreignisEintrag(ereignis));
-  }
-  li.appendChild(liste);
-
   return li;
 }
 
@@ -672,8 +804,173 @@ function renderFavoritenTab() {
   const jetzt = new Date();
   const sortiert = Array.from(favoriten).sort((a, b) => a.localeCompare(b, 'de-DE'));
   for (const label of sortiert) {
-    el.favoritenListe.appendChild(baueFavoritenKarte(label, jetzt));
+    el.favoritenListe.appendChild(baueFavoritenKarteKompakt(label, jetzt));
   }
+}
+
+function oeffneFavoritenDialog(label) {
+  favoritenDialogLabel = label;
+  el.favoritenDialogTitel.textContent = label;
+  el.favoritenDialogWasserstand.innerHTML = '';
+  el.favoritenDialogWasserstand.appendChild(renderWasserstandFuerKarte(label));
+
+  const jetzt = new Date();
+  const ereignisse = stationen.get(label)?.ereignisse || [];
+  const zeitraum = { von: jetzt, bis: new Date(jetzt.getTime() + 5 * 86400000) };
+  const gefiltert = filtereEreignisseImZeitraum(ereignisse, zeitraum);
+  el.favoritenDialogListe.innerHTML = '';
+  el.favoritenDialogListe.appendChild(
+    gefiltert.length > 0
+      ? baueGruppierteListe(gefiltert, jetzt)
+      : baueLeereListenHinweis('Für die nächsten 5 Tage liegen keine Gezeiten in der BSH-Vorhersage vor.'),
+  );
+  el.favoritenDialog.showModal();
+}
+
+function schliesseFavoritenDialog() {
+  el.favoritenDialog.close();
+}
+
+function initFavoritenDialog() {
+  el.favoritenDialogSchliessen.addEventListener('click', schliesseFavoritenDialog);
+  el.favoritenDialogEntfernen.addEventListener('click', () => {
+    if (favoritenDialogLabel) toggleFavorit(favoritenDialogLabel);
+    schliesseFavoritenDialog();
+  });
+}
+
+// ---------- Tab 3: Brunsbüttel ----------
+
+function istGueltigerTiefgang(wert) {
+  return Number.isFinite(wert) && wert >= 0.5 && wert <= 3.5;
+}
+
+function handleTiefgangEingabe() {
+  const roh = el.brunsbuettelTfgInput.value;
+  if (roh === '') {
+    verstecke(el.brunsbuettelTfgFehler);
+    return;
+  }
+  const wert = Number(roh);
+  if (!istGueltigerTiefgang(wert)) {
+    el.brunsbuettelTfgFehler.hidden = false;
+    el.brunsbuettelTfgFehler.textContent = 'Tiefgang muss zwischen 0,50 m und 3,50 m liegen.';
+    return;
+  }
+  verstecke(el.brunsbuettelTfgFehler);
+  const gerundet = Math.round(wert * 100) / 100;
+  el.brunsbuettelTfgInput.value = gerundet.toFixed(2);
+  speichereTiefgang(gerundet);
+}
+
+function initBrunsbuettelTfg() {
+  const gespeichert = ladeTiefgang();
+  if (gespeichert != null) el.brunsbuettelTfgInput.value = gespeichert.toFixed(2);
+  el.brunsbuettelTfgInput.addEventListener('change', handleTiefgangEingabe);
+}
+
+function berechneChartFenster(jetzt) {
+  const von = startDesTages(jetzt);
+  const bis = endeDesTages(new Date(von.getTime() + 86400000));
+  return { von, bis };
+}
+
+function berechneChartSkala(punkte) {
+  const werte = punkte.map((p) => p.wert);
+  let min = werte.length ? Math.min(...werte) : PNP_REFERENZ_CM - 100;
+  let max = werte.length ? Math.max(...werte) : PNP_REFERENZ_CM + 100;
+  min = Math.min(min, PNP_REFERENZ_CM - 20);
+  max = Math.max(max, PNP_REFERENZ_CM + 20);
+  const puffer = (max - min) * 0.1 || 10;
+  return { min: min - puffer, max: max + puffer };
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+function baueWasserstandsChart(punkte, von, bis) {
+  const breite = 640;
+  const hoehe = 240;
+  const padLinks = 12;
+  const padRechts = 44;
+  const padOben = 10;
+  const padUnten = 28;
+  const skala = berechneChartSkala(punkte);
+  const x = (zeit) =>
+    padLinks + ((zeit.getTime() - von.getTime()) / (bis.getTime() - von.getTime())) * (breite - padLinks - padRechts);
+  const y = (wert) => padOben + (1 - (wert - skala.min) / (skala.max - skala.min)) * (hoehe - padOben - padUnten);
+
+  const svg = svgEl('svg', { viewBox: `0 0 ${breite} ${hoehe}`, role: 'img', 'aria-label': 'Wasserstandskurve Brunsbüttel' });
+
+  svg.appendChild(
+    svgEl('line', {
+      x1: padLinks,
+      x2: breite - padRechts,
+      y1: y(PNP_REFERENZ_CM),
+      y2: y(PNP_REFERENZ_CM),
+      class: 'chart-referenzlinie',
+    }),
+  );
+  const refLabel = svgEl('text', { x: breite - padRechts + 4, y: y(PNP_REFERENZ_CM) + 3, class: 'chart-achse-text' });
+  refLabel.textContent = `PNP ${PNP_REFERENZ_CM}`;
+  svg.appendChild(refLabel);
+
+  const refY = y(PNP_REFERENZ_CM);
+  for (const wert of [skala.min, (skala.min + skala.max) / 2, skala.max]) {
+    if (Math.abs(y(wert) - refY) < 10) continue; // Kollision mit dem PNP-Referenzlabel vermeiden
+    const t = svgEl('text', { x: breite - padRechts + 4, y: y(wert) + 3, class: 'chart-achse-text' });
+    t.textContent = String(Math.round(wert));
+    svg.appendChild(t);
+  }
+
+  for (let ts = von.getTime(); ts <= bis.getTime(); ts += 6 * 3600000) {
+    const zeit = new Date(ts);
+    const t = svgEl('text', { x: x(zeit), y: hoehe - 4, class: 'chart-achse-text', 'text-anchor': 'middle' });
+    t.textContent = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(zeit);
+    svg.appendChild(t);
+  }
+
+  const baueLinie = (serie, klasse) => {
+    if (serie.length === 0) return null;
+    const punkteStr = serie.map((p) => `${x(p.zeit)},${y(p.wert)}`).join(' ');
+    return svgEl('polyline', { points: punkteStr, class: klasse, fill: 'none' });
+  };
+  const messung = punkte.filter((p) => p.quelle === 'messung');
+  const vorhersage = punkte.filter((p) => p.quelle === 'vorhersage');
+  const lVorhersage = baueLinie(vorhersage, 'chart-linie chart-linie--vorhersage');
+  const lMessung = baueLinie(messung, 'chart-linie chart-linie--messung');
+  if (lVorhersage) svg.appendChild(lVorhersage);
+  if (lMessung) svg.appendChild(lMessung);
+
+  return svg;
+}
+
+function renderBrunsbuettelChart(jetzt) {
+  el.brunsbuettelChartContainer.innerHTML = '';
+  const daten = stationen.get(BRUNSBUETTEL_LABEL);
+  if (!daten || daten.kurve.length === 0) {
+    el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für Brunsbüttel liegen aktuell keine Kurvendaten vor.'));
+    return;
+  }
+  const { von, bis } = berechneChartFenster(jetzt);
+  const punkte = daten.kurve.filter((p) => p.zeit.getTime() >= von.getTime() && p.zeit.getTime() <= bis.getTime());
+  if (punkte.length === 0) {
+    el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für heute/morgen liegen keine Kurvendaten vor.'));
+    return;
+  }
+  el.brunsbuettelChartContainer.appendChild(baueWasserstandsChart(punkte, von, bis));
+}
+
+function renderBrunsbuettelTab() {
+  const daten = stationen.get(BRUNSBUETTEL_LABEL);
+  el.brunsbuettelTitel.textContent = BRUNSBUETTEL_LABEL;
+  el.brunsbuettelMhw.textContent = daten?.mhw != null ? formatiereMeter(daten.mhw) : '—';
+  el.brunsbuettelMnw.textContent = daten?.mnw != null ? formatiereMeter(daten.mnw) : '—';
+  renderBrunsbuettelChart(new Date());
 }
 
 // ---------- Daten-Refresh ----------
@@ -688,6 +985,7 @@ async function aktualisiereDaten({ zeigeFehler = false } = {}) {
     aktualisiereFussnote();
     if (ausgewaehlteStation) renderSucheTab();
     renderFavoritenTab();
+    if (aktiverTab === 'brunsbuettel') renderBrunsbuettelTab();
   } catch (err) {
     console.error(err);
     if (stationen.size > 0) {
@@ -714,6 +1012,8 @@ async function init() {
   initFavoritToggle();
   initZeitraumSteuerung();
   initZeitraumDialog();
+  initFavoritenDialog();
+  initBrunsbuettelTfg();
 
   favoriten = ladeFavoriten();
 
@@ -742,6 +1042,7 @@ async function init() {
   setInterval(() => {
     if (ausgewaehlteStation) renderSucheTab();
     renderFavoritenTab();
+    if (aktiverTab === 'brunsbuettel') renderBrunsbuettelTab();
   }, TICK_MS);
 
   setInterval(() => aktualisiereDaten(), AUTO_REFRESH_MS);
