@@ -1,4 +1,4 @@
-# Gezeiten-App
+# Benni's Gezeiten App
 
 Eine kleine, eigenständige Web-App, die aktuelle Gezeitenvorhersagen (Hochwasser/Niedrigwasser)
 für Stationen an der deutschen Nordsee- und Ostseeküste anzeigt — installierbar auf iPhone/iPad
@@ -75,7 +75,9 @@ der **nur den Ordner `gezeiten-app`** braucht (kein Build, kein Server nötig):
 ## Anpassen
 
 - **Farben/Aussehen**: ganz oben in `styles.css`, in den `:root { ... }`-Variablen
-  (`--farbe-akzent` usw.). Es gibt auch einen automatischen Dunkelmodus-Block direkt darunter.
+  (`--farbe-akzent` usw.). Der Dunkelmodus-Block direkt darunter wird automatisch aktiviert:
+  nachts (20–7 Uhr, anpassbar in `aktualisiereFarbschema()` in `app.js`) oder wenn das Gerät
+  im Dunkelmodus ist.
 - **App-Name**: in `index.html` (`<title>`) und in `manifest.webmanifest` (`"name"`/`"short_name"`).
 - **Icon**: liegt im Projekt-Root. Es wurde einfach generiert (Wellen auf blauem Verlauf) — ersetzbar
   durch eigene PNG-Dateien in den gleichen Größen (192×192, 512×512, 512×512 maskable,

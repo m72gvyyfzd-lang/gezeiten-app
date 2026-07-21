@@ -28,6 +28,7 @@ const MERGE_TOLERANZ_MS = 3 * 3600000; // Vorhersage- und Tafel-Ereignis gelten 
 
 const el = {
   input: document.getElementById('station-input'),
+  inputLoeschen: document.getElementById('station-clear'),
   results: document.getElementById('station-results'),
   statusBanner: document.getElementById('status-banner'),
   emptyState: document.getElementById('empty-state'),
@@ -790,6 +791,7 @@ function renderSucheTab() {
 function waehleStation(label) {
   ausgewaehlteStation = label;
   el.input.value = label;
+  aktualisiereLoeschButton();
   verstecke(el.results);
   gezeitenTafelFuer(label); // Tafel im Hintergrund vorladen
   try {
@@ -832,10 +834,23 @@ function zeigeSuchergebnisse(suchbegriff) {
   el.results.hidden = false;
 }
 
+function aktualisiereLoeschButton() {
+  el.inputLoeschen.hidden = el.input.value.length === 0;
+}
+
 function initEreignisListener() {
-  el.input.addEventListener('input', (e) => zeigeSuchergebnisse(e.target.value));
+  el.input.addEventListener('input', (e) => {
+    aktualisiereLoeschButton();
+    zeigeSuchergebnisse(e.target.value);
+  });
   el.input.addEventListener('focus', (e) => {
     if (e.target.value.trim().length > 0) zeigeSuchergebnisse(e.target.value);
+  });
+  el.inputLoeschen.addEventListener('click', () => {
+    el.input.value = '';
+    aktualisiereLoeschButton();
+    verstecke(el.results);
+    el.input.focus(); // direkt bereit für die nächste Suche
   });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.station-suche')) verstecke(el.results);
@@ -964,6 +979,9 @@ function initFavoritenDialog() {
     if (favoritenDialogLabel) toggleFavorit(favoritenDialogLabel);
     schliesseFavoritenDialog();
   });
+  // Klick irgendwohin (auch auf den abgedunkelten Hintergrund) schließt den
+  // Dialog — das ✕ bleibt als zusätzlicher, expliziter Weg bestehen.
+  el.favoritenDialog.addEventListener('click', schliesseFavoritenDialog);
 }
 
 // ---------- Tab 3: Brunsbüttel ----------
@@ -1227,6 +1245,20 @@ function renderBrunsbuettelTab() {
   renderBrunsbuettelChart(new Date());
 }
 
+// ---------- Farbschema (automatische Tag/Nacht-Umschaltung) ----------
+
+function aktualisiereFarbschema() {
+  const stunde = new Date().getHours();
+  const nachts = stunde >= 20 || stunde < 7;
+  const systemDunkel = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = nachts || systemDunkel ? 'dunkel' : 'hell';
+}
+
+function initFarbschema() {
+  aktualisiereFarbschema();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', aktualisiereFarbschema);
+}
+
 // ---------- Daten-Refresh ----------
 
 async function aktualisiereDaten({ zeigeFehler = false } = {}) {
@@ -1261,6 +1293,7 @@ async function aktualisiereDaten({ zeigeFehler = false } = {}) {
 // ---------- Init ----------
 
 async function init() {
+  initFarbschema();
   initEreignisListener();
   initTabNavigation();
   initFavoritToggle();
@@ -1296,6 +1329,7 @@ async function init() {
   }
 
   setInterval(() => {
+    aktualisiereFarbschema();
     if (ausgewaehlteStation) renderSucheTab();
     renderFavoritenTab();
     if (aktiverTab === 'brunsbuettel') renderBrunsbuettelTab();

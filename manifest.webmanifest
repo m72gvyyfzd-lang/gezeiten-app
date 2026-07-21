@@ -1,6 +1,6 @@
 {
-  "name": "Gezeiten – Tidevorhersage",
-  "short_name": "Gezeiten",
+  "name": "Benni's Gezeiten App",
+  "short_name": "Benni's Gezeiten App",
   "description": "Aktuelle Gezeitenvorhersagen für die deutsche Nordsee- und Ostseeküste",
   "start_url": "./index.html",
   "scope": "./",
