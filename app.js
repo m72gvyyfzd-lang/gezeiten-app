@@ -67,7 +67,7 @@ const el = {
   brunsbuettelTfgFehler: document.getElementById('brunsbuettel-tfg-fehler'),
   brunsbuettelChartContainer: document.getElementById('brunsbuettel-chart-container'),
   brunsbuettelTagButtons: document.querySelectorAll('.brunsbuettel-tag-btn'),
-  brunsbuettelFensterInfo: document.getElementById('brunsbuettel-fenster-info'),
+  brunsbuettelErgebnis: document.getElementById('brunsbuettel-ergebnis'),
 };
 
 /** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date, wert: number|null, delta: string|null}[], kurve: {zeit: Date, wert: number, quelle: 'messung'|'vorhersage'}[], mhw: number|null, mnw: number|null}>} */
@@ -1027,9 +1027,10 @@ function berechneChartFenster(jetzt, tag) {
   return { von: startDesTages(basis), bis: endeDesTages(basis) };
 }
 
-function berechneChartSkala(punkte, schwelle) {
+function berechneChartSkala(punkte, schwelle, mittelwerte = []) {
   const werte = punkte.map((p) => p.wert);
   if (schwelle != null) werte.push(schwelle);
+  for (const m of mittelwerte) werte.push(m.wert);
   const min = Math.min(...werte);
   const max = Math.max(...werte);
   const puffer = (max - min) * 0.06 || 10;
@@ -1070,31 +1071,37 @@ function svgEl(tag, attrs) {
   return node;
 }
 
-function baueWasserstandsChart(punkte, von, bis, schwelle, fenster) {
+function baueWasserstandsChart(punkte, von, bis, schwelle, fenster, mittelwerte) {
   const breite = 640;
   const hoehe = 260;
   const padLinks = 12;
   const padRechts = 46;
   const padOben = 12;
   const padUnten = 28;
-  const skala = berechneChartSkala(punkte, schwelle);
+  const skala = berechneChartSkala(punkte, schwelle, mittelwerte);
   const x = (zeit) =>
     padLinks + ((zeit.getTime() - von.getTime()) / (bis.getTime() - von.getTime())) * (breite - padLinks - padRechts);
   const y = (wert) => padOben + (1 - (wert - skala.min) / (skala.max - skala.min)) * (hoehe - padOben - padUnten);
 
   const svg = svgEl('svg', { viewBox: `0 0 ${breite} ${hoehe}`, role: 'img', 'aria-label': 'Wasserstandskurve Brunsbüttel' });
 
-  // Befahrbare Fenster als hinterlegte Flächen (zuerst zeichnen, damit die Kurven darüber liegen)
+  // Befahrbare Fenster: nur die Fläche zwischen Kurve und Grenzlinie füllen
+  // (Polygon entlang der Kurvenpunkte, geschlossen über die Grenzlinie).
   for (const f of fenster) {
-    svg.appendChild(
-      svgEl('rect', {
-        x: x(f.von),
-        y: padOben,
-        width: Math.max(x(f.bis) - x(f.von), 1),
-        height: hoehe - padOben - padUnten,
-        class: 'chart-fenster',
-      }),
-    );
+    const innen = punkte.filter((p) => p.zeit.getTime() >= f.von.getTime() && p.zeit.getTime() <= f.bis.getTime());
+    const eckpunkte = [`${x(f.von)},${y(schwelle)}`];
+    for (const p of innen) eckpunkte.push(`${x(p.zeit)},${y(p.wert)}`);
+    eckpunkte.push(`${x(f.bis)},${y(schwelle)}`);
+    svg.appendChild(svgEl('polygon', { points: eckpunkte.join(' '), class: 'chart-fenster' }));
+  }
+
+  // MHW/MNW als sehr dezente Referenzlinien
+  for (const m of mittelwerte) {
+    const mY = y(m.wert);
+    svg.appendChild(svgEl('line', { x1: padLinks, x2: breite - padRechts, y1: mY, y2: mY, class: 'chart-mittelwertlinie' }));
+    const mLabel = svgEl('text', { x: padLinks + 2, y: mY - 3, class: 'chart-achse-text chart-achse-text--dezent' });
+    mLabel.textContent = m.label;
+    svg.appendChild(mLabel);
   }
 
   // Grenzlinie: Grundwert + Tiefgang
@@ -1140,33 +1147,50 @@ function formatiereUhrzeit(zeit) {
   return new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(zeit);
 }
 
+// Ebene 3 der Info-Karte: PNP-Grenze + Passagen. Immer mindestens drei Zeilen
+// (mit „—"-Platzhaltern), damit die Kartengröße ohne Ergebnis gleich bleibt.
+function renderBrunsbuettelErgebnis(schwelle, fenster) {
+  el.brunsbuettelErgebnis.innerHTML = '';
+  const zeile = (titel, wert) => {
+    const div = document.createElement('div');
+    const dt = document.createElement('dt');
+    dt.textContent = titel;
+    const dd = document.createElement('dd');
+    dd.textContent = wert;
+    div.append(dt, dd);
+    el.brunsbuettelErgebnis.appendChild(div);
+  };
+  zeile('PNP (Tfg + Grundwert)', schwelle != null ? formatiereMeter(schwelle) : '—');
+  const anzahl = Math.max(2, fenster.length);
+  for (let i = 0; i < anzahl; i++) {
+    const f = fenster[i];
+    zeile(`Passage ${i + 1}`, f ? `${formatiereUhrzeit(f.von)} – ${formatiereUhrzeit(f.bis)}` : '—');
+  }
+}
+
 function renderBrunsbuettelChart(jetzt) {
   el.brunsbuettelChartContainer.innerHTML = '';
-  el.brunsbuettelFensterInfo.textContent = '';
   const daten = stationen.get(BRUNSBUETTEL_LABEL);
   if (!daten || daten.kurve.length === 0) {
     el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für Brunsbüttel liegen aktuell keine Kurvendaten vor.'));
+    renderBrunsbuettelErgebnis(null, []);
     return;
   }
   const { von, bis } = berechneChartFenster(jetzt, brunsbuettelTag);
   const punkte = daten.kurve.filter((p) => p.zeit.getTime() >= von.getTime() && p.zeit.getTime() <= bis.getTime());
+  const schwelle = schwelleFuerTag(von);
   if (punkte.length === 0) {
     el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für diesen Tag liegen keine Kurvendaten vor.'));
+    renderBrunsbuettelErgebnis(schwelle, []);
     return;
   }
 
-  const schwelle = schwelleFuerTag(von);
   const fenster = schwelle != null ? ermittleBefahrbareFenster(punkte, schwelle) : [];
-  el.brunsbuettelChartContainer.appendChild(baueWasserstandsChart(punkte, von, bis, schwelle, fenster));
-
-  if (schwelle == null) {
-    el.brunsbuettelFensterInfo.textContent = 'Tiefgang (Tfg) eingeben, um das befahrbare Fenster zu sehen.';
-  } else if (fenster.length === 0) {
-    el.brunsbuettelFensterInfo.textContent = `Kein befahrbares Fenster an diesem Tag (Grenze ${formatiereMeter(schwelle)}).`;
-  } else {
-    const zeiten = fenster.map((f) => `${formatiereUhrzeit(f.von)}–${formatiereUhrzeit(f.bis)}`).join(', ');
-    el.brunsbuettelFensterInfo.textContent = `Befahrbar (Grenze ${formatiereMeter(schwelle)}): ${zeiten}`;
-  }
+  const mittelwerte = [];
+  if (daten.mhw != null) mittelwerte.push({ label: 'MHW', wert: daten.mhw });
+  if (daten.mnw != null) mittelwerte.push({ label: 'MNW', wert: daten.mnw });
+  el.brunsbuettelChartContainer.appendChild(baueWasserstandsChart(punkte, von, bis, schwelle, fenster, mittelwerte));
+  renderBrunsbuettelErgebnis(schwelle, fenster);
 }
 
 function initBrunsbuettelTag() {
