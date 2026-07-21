@@ -79,9 +79,11 @@ der **nur den Ordner `gezeiten-app`** braucht (kein Build, kein Server nötig):
   durch eigene PNG-Dateien in den gleichen Größen (192×192, 512×512, 512×512 maskable,
   180×180 für `apple-touch-icon.png`).
 - **Zeitraum-Optionen** (3 Tage/1 Woche): `ZEITRAUM_TAGE` in `app.js`.
-- **Brunsbüttel-Tab**: feste Station über `BRUNSBUETTEL_LABEL`, Referenzlinie über `PNP_REFERENZ_CM`
-  in `app.js`. Das Tfg-Eingabefeld (Tiefgang) wird aktuell nur validiert und gespeichert, fließt
-  noch in keine Berechnung ein.
+- **Brunsbüttel-Tab**: feste Station über `BRUNSBUETTEL_LABEL` in `app.js`. Die Grenzlinie der
+  Kurve ist `Grundwert + Tiefgang (Tfg-Eingabe)`; der saisonale Grundwert (2,70 m bis 1. März,
+  linear bis 3,30 m am 30. September) steckt in `GRUNDWERT_WINTER_M`/`GRUNDWERT_HERBST_M` bzw.
+  `grundwertFuer()`. Zeiträume, in denen die Kurve über der Grenze liegt, werden als
+  „befahrbares Fenster" grün hinterlegt und unter der Grafik aufgelistet.
 
 ## Bekannte Grenzen
 

@@ -11,6 +11,7 @@
   --farbe-fallend: #c4571f;
   --farbe-warnung-bg: #fff4e5;
   --farbe-warnung-text: #7a4a12;
+  --farbe-chart-grenze: #c22a2a;
   --schatten: 0 1px 3px rgba(11, 61, 99, 0.08), 0 1px 2px rgba(11, 61, 99, 0.06);
 }
 
@@ -28,6 +29,7 @@
     --farbe-fallend: #ff9a5c;
     --farbe-warnung-bg: #2a2011;
     --farbe-warnung-text: #f2c98a;
+    --farbe-chart-grenze: #ff6b6b;
     --schatten: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 }
@@ -669,6 +671,11 @@ body {
   color: var(--farbe-text);
 }
 
+.brunsbuettel-tag-auswahl {
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 0.8rem;
+}
+
 #brunsbuettel-chart-container svg {
   width: 100%;
   height: auto;
@@ -684,17 +691,73 @@ body {
 }
 
 .chart-linie--vorhersage {
-  stroke: var(--farbe-akzent-dunkel);
+  stroke: var(--farbe-fallend);
   stroke-dasharray: 4 3;
 }
 
-.chart-referenzlinie {
-  stroke: var(--farbe-fallend);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
+.chart-grenzlinie {
+  stroke: var(--farbe-chart-grenze);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+
+.chart-fenster {
+  fill: var(--farbe-steigend);
+  opacity: 0.18;
 }
 
 .chart-achse-text {
   fill: var(--farbe-text-schwach);
   font-size: 8px;
+}
+
+.chart-achse-text--grenze {
+  fill: var(--farbe-chart-grenze);
+  font-weight: 700;
+}
+
+.chart-legende {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--farbe-text-schwach);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.chart-legende__swatch {
+  display: inline-block;
+  width: 1.1em;
+  height: 3px;
+  border-radius: 2px;
+  margin-left: 0.5em;
+}
+
+.chart-legende__swatch:first-child {
+  margin-left: 0;
+}
+
+.chart-legende__swatch--messung {
+  background: var(--farbe-akzent);
+}
+
+.chart-legende__swatch--vorhersage {
+  background: var(--farbe-fallend);
+}
+
+.chart-legende__swatch--grenze {
+  background: var(--farbe-chart-grenze);
+}
+
+.chart-legende__swatch--fenster {
+  height: 0.9em;
+  background: var(--farbe-steigend);
+  opacity: 0.35;
+}
+
+.brunsbuettel-fenster-info {
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
 }

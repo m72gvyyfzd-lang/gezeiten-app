@@ -105,7 +105,22 @@
         </section>
         <section class="karte brunsbuettel-chart-karte">
           <h2>Wasserstandskurve</h2>
+          <div class="zeitraum-auswahl brunsbuettel-tag-auswahl" role="group" aria-label="Tag">
+            <button type="button" class="zeitraum-btn brunsbuettel-tag-btn" data-tag="heute" aria-pressed="true">
+              Heute
+            </button>
+            <button type="button" class="zeitraum-btn brunsbuettel-tag-btn" data-tag="morgen" aria-pressed="false">
+              Morgen
+            </button>
+          </div>
           <div id="brunsbuettel-chart-container"></div>
+          <p class="chart-legende">
+            <span class="chart-legende__swatch chart-legende__swatch--messung"></span> beobachtet
+            <span class="chart-legende__swatch chart-legende__swatch--vorhersage"></span> Vorhersage
+            <span class="chart-legende__swatch chart-legende__swatch--grenze"></span> Grenze
+            <span class="chart-legende__swatch chart-legende__swatch--fenster"></span> befahrbar
+          </p>
+          <p id="brunsbuettel-fenster-info" class="brunsbuettel-fenster-info"></p>
         </section>
       </section>
     </main>
