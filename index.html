@@ -92,19 +92,23 @@
 
       <section id="panel-brunsbuettel" class="tab-panel" data-tab-panel="brunsbuettel" hidden>
         <section class="karte brunsbuettel-info">
-          <h2 id="brunsbuettel-titel"></h2>
-          <dl class="brunsbuettel-info__werte">
-            <div><dt>MHW</dt><dd id="brunsbuettel-mhw">—</dd></div>
-            <div><dt>MNW</dt><dd id="brunsbuettel-mnw">—</dd></div>
-          </dl>
-          <div class="brunsbuettel-tfg">
-            <label for="brunsbuettel-tfg-input">Tfg (m)</label>
-            <input type="number" id="brunsbuettel-tfg-input" step="0.01" min="0.5" max="3.5" inputmode="decimal" />
+          <h2 id="brunsbuettel-titel" class="brunsbuettel-info__titel"></h2>
+          <div class="brunsbuettel-zeile2">
+            <div class="brunsbuettel-tfg">
+              <label for="brunsbuettel-tfg-input">Tfg (m)</label>
+              <input type="number" id="brunsbuettel-tfg-input" step="0.01" min="0.5" max="3.5" inputmode="decimal" />
+            </div>
+            <dl class="brunsbuettel-info__werte">
+              <div><dt>MHW</dt><dd id="brunsbuettel-mhw">—</dd></div>
+              <div><dt>MNW</dt><dd id="brunsbuettel-mnw">—</dd></div>
+            </dl>
           </div>
           <p id="brunsbuettel-tfg-fehler" class="zeitraum-dialog__fehler" hidden></p>
+          <dl id="brunsbuettel-ergebnis" class="brunsbuettel-ergebnis"></dl>
         </section>
         <section class="karte brunsbuettel-chart-karte">
           <h2>Wasserstandskurve</h2>
+          <div id="brunsbuettel-chart-container"></div>
           <div class="zeitraum-auswahl brunsbuettel-tag-auswahl" role="group" aria-label="Tag">
             <button type="button" class="zeitraum-btn brunsbuettel-tag-btn" data-tag="heute" aria-pressed="true">
               Heute
@@ -113,14 +117,6 @@
               Morgen
             </button>
           </div>
-          <div id="brunsbuettel-chart-container"></div>
-          <p class="chart-legende">
-            <span class="chart-legende__swatch chart-legende__swatch--messung"></span> beobachtet
-            <span class="chart-legende__swatch chart-legende__swatch--vorhersage"></span> Vorhersage
-            <span class="chart-legende__swatch chart-legende__swatch--grenze"></span> Grenze
-            <span class="chart-legende__swatch chart-legende__swatch--fenster"></span> befahrbar
-          </p>
-          <p id="brunsbuettel-fenster-info" class="brunsbuettel-fenster-info"></p>
         </section>
       </section>
     </main>

@@ -83,7 +83,7 @@ der **nur den Ordner `gezeiten-app`** braucht (kein Build, kein Server nötig):
   Kurve ist `Grundwert + Tiefgang (Tfg-Eingabe)`; der saisonale Grundwert (2,70 m bis 1. März,
   linear bis 3,30 m am 30. September) steckt in `GRUNDWERT_WINTER_M`/`GRUNDWERT_HERBST_M` bzw.
   `grundwertFuer()`. Zeiträume, in denen die Kurve über der Grenze liegt, werden als
-  „befahrbares Fenster" grün hinterlegt und unter der Grafik aufgelistet.
+  „befahrbares Fenster" grün hinterlegt und als „Passagen" in der Info-Karte aufgelistet.
 
 ## Bekannte Grenzen
 
