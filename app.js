@@ -14,7 +14,17 @@ const STORAGE_KEY_FAVORITEN = 'gezeiten:favoriten';
 const STORAGE_KEY_TFG = 'gezeiten:tiefgang';
 
 const BRUNSBUETTEL_LABEL = 'Brunsbüttel, Elbe, Ost';
-const PNP_REFERENZ_CM = 450;
+// Saisonaler Grundwert für die Befahrbarkeits-Grenze (Grenze = Grundwert + Tiefgang):
+// 2,70 m bis 1. März, linear interpoliert bis 3,30 m am 30. September, danach 3,30 m.
+const GRUNDWERT_WINTER_M = 2.7;
+const GRUNDWERT_HERBST_M = 3.3;
+
+// Gespiegelte astronomische Gezeitentafeln (siehe scripts/aktualisiere-gezeitentafeln.py):
+// decken ganz 2026/2027 ab, inkl. Vergangenheit — die Wasserstandsvorhersage ergänzt sie
+// dort, wo sie verfügbar ist (~6 Tage ab jetzt).
+const GEZEITENTAFEL_BASIS = 'tides';
+const GEZEITENTAFEL_OFFSET = '+01:00'; // Tafeln nutzen ganzjährig MEZ
+const MERGE_TOLERANZ_MS = 3 * 3600000; // Vorhersage- und Tafel-Ereignis gelten als dasselbe HW/NW
 
 const el = {
   input: document.getElementById('station-input'),
@@ -56,6 +66,8 @@ const el = {
   brunsbuettelTfgInput: document.getElementById('brunsbuettel-tfg-input'),
   brunsbuettelTfgFehler: document.getElementById('brunsbuettel-tfg-fehler'),
   brunsbuettelChartContainer: document.getElementById('brunsbuettel-chart-container'),
+  brunsbuettelTagButtons: document.querySelectorAll('.brunsbuettel-tag-btn'),
+  brunsbuettelFensterInfo: document.getElementById('brunsbuettel-fenster-info'),
 };
 
 /** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date, wert: number|null, delta: string|null}[], kurve: {zeit: Date, wert: number, quelle: 'messung'|'vorhersage'}[], mhw: number|null, mnw: number|null}>} */
@@ -68,6 +80,14 @@ let aktiverZeitraumTyp = 'heute'; // 'heute' | '3tage' | '1woche' | 'eigen'
 let eigenerZeitraum = null; // {von: Date, bis: Date} | null — für Dialog-Vorbefüllung beim erneuten Öffnen
 let favoriten = new Set();
 let favoritenDialogLabel = null;
+let brunsbuettelTag = 'heute'; // 'heute' | 'morgen' — angezeigter Tag der Wasserstandskurve
+
+/** @type {Map<string, string>|null} Stationsname -> seo_id der Gezeitentafel */
+let gezeitenTafelIndex = null;
+let gezeitenTafelIndexLaedt = false;
+/** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date, wert: number|null, delta: null}[], grenzen: {frueheste: Date, spaeteste: Date}}>} */
+const gezeitenTafeln = new Map();
+const gezeitenTafelnLaufend = new Set();
 
 // ---------- Daten laden (BSH) ----------
 
@@ -136,6 +156,90 @@ async function ladeVonBsh() {
     throw new Error('BSH-Antwort enthielt keine verwertbaren Stationsdaten.');
   }
   return neueStationen;
+}
+
+// ---------- Gezeitentafeln (gespiegelt, siehe tides/) ----------
+
+function renderNachDatenupdate() {
+  if (ausgewaehlteStation) renderSucheTab();
+  renderFavoritenTab();
+}
+
+async function ladeGezeitenTafelIndex() {
+  if (gezeitenTafelIndex || gezeitenTafelIndexLaedt) return;
+  gezeitenTafelIndexLaedt = true;
+  try {
+    const response = await fetch(`${GEZEITENTAFEL_BASIS}/index.json`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const eintraege = await response.json();
+    gezeitenTafelIndex = new Map(eintraege.map((e) => [e.name, e.seo_id]));
+    renderNachDatenupdate();
+  } catch (err) {
+    console.warn('Gezeitentafel-Index nicht ladbar:', err);
+  } finally {
+    gezeitenTafelIndexLaedt = false;
+  }
+}
+
+async function ladeGezeitenTafel(seoId) {
+  if (gezeitenTafeln.has(seoId) || gezeitenTafelnLaufend.has(seoId)) return;
+  gezeitenTafelnLaufend.add(seoId);
+  try {
+    const response = await fetch(`${GEZEITENTAFEL_BASIS}/${seoId}.json`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const roh = await response.json();
+    const ereignisse = roh.ereignisse
+      .map(([zeitText, typ, hoehe]) => ({
+        typ,
+        zeit: new Date(`${zeitText.replace(' ', 'T')}${GEZEITENTAFEL_OFFSET}`),
+        wert: hoehe != null && Number.isFinite(Number(hoehe)) ? Number(hoehe) : null,
+        delta: null,
+      }))
+      .filter((e) => (e.typ === 'HW' || e.typ === 'NW') && !Number.isNaN(e.zeit.getTime()));
+    if (ereignisse.length === 0) return;
+    gezeitenTafeln.set(seoId, {
+      ereignisse,
+      grenzen: { frueheste: ereignisse[0].zeit, spaeteste: ereignisse[ereignisse.length - 1].zeit },
+    });
+    renderNachDatenupdate();
+  } catch (err) {
+    console.warn(`Gezeitentafel für ${seoId} nicht ladbar:`, err);
+  } finally {
+    gezeitenTafelnLaufend.delete(seoId);
+  }
+}
+
+// Liefert die Tafel synchron aus dem Cache (oder null) und stößt bei Bedarf das
+// Nachladen an — nach dem Laden wird automatisch neu gerendert.
+function gezeitenTafelFuer(label) {
+  if (!label) return null;
+  if (!gezeitenTafelIndex) {
+    ladeGezeitenTafelIndex();
+    return null;
+  }
+  const seoId = gezeitenTafelIndex.get(label);
+  if (!seoId) return null;
+  const tafel = gezeitenTafeln.get(seoId);
+  if (tafel) return tafel;
+  ladeGezeitenTafel(seoId);
+  return null;
+}
+
+// Tafel-Ereignisse füllen die Lücken der Vorhersage: wo beide dasselbe HW/NW
+// beschreiben (gleicher Typ, Zeitabstand unter der Toleranz), gewinnt die
+// Vorhersage (wetterkorrigierter Wert + Abweichung).
+function mischeEreignisse(vorhersage, tafel, zeitraum) {
+  const inZeitraum = (e) => e.zeit.getTime() >= zeitraum.von.getTime() && e.zeit.getTime() <= zeitraum.bis.getTime();
+  const vorhersageImZeitraum = vorhersage.filter(inZeitraum);
+  const ergaenzung = tafel
+    .filter(inZeitraum)
+    .filter(
+      (t) =>
+        !vorhersageImZeitraum.some(
+          (v) => v.typ === t.typ && Math.abs(v.zeit.getTime() - t.zeit.getTime()) <= MERGE_TOLERANZ_MS,
+        ),
+    );
+  return [...vorhersageImZeitraum, ...ergaenzung].sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
 }
 
 // ---------- Speicher/Storage ----------
@@ -350,13 +454,17 @@ function ermittleAbdeckungsHinweis(ereignisse, zeitraum) {
 }
 
 function ermittleDatengrenzen(label) {
+  // Mit Gezeitentafel: kompletter Tafel-Zeitraum (ganz 2026/2027, inkl. Vergangenheit).
+  const tafel = gezeitenTafelFuer(label);
+  if (tafel) return tafel.grenzen;
+  // Ohne Tafel: nur das Vorhersagefenster ab heute.
   const daten = stationen.get(label);
   if (!daten) return null;
   const zeiten = [];
   for (const e of daten.ereignisse) zeiten.push(e.zeit.getTime());
   for (const p of daten.kurve) zeiten.push(p.zeit.getTime());
   if (zeiten.length === 0) return null;
-  return { spaeteste: new Date(Math.max(...zeiten)) };
+  return { frueheste: startDesTages(new Date()), spaeteste: new Date(Math.max(...zeiten)) };
 }
 
 function zuDateInputWert(datum) {
@@ -372,14 +480,15 @@ function ausDateInputWert(text) {
 }
 
 function oeffneZeitraumDialog() {
-  const heute = startDesTages(new Date());
-  el.zeitraumVon.min = zuDateInputWert(heute);
-  el.zeitraumBis.min = zuDateInputWert(heute);
   const grenzen = ermittleDatengrenzen(ausgewaehlteStation);
   if (grenzen) {
+    el.zeitraumVon.min = zuDateInputWert(grenzen.frueheste);
+    el.zeitraumBis.min = zuDateInputWert(grenzen.frueheste);
     el.zeitraumVon.max = zuDateInputWert(grenzen.spaeteste);
     el.zeitraumBis.max = zuDateInputWert(grenzen.spaeteste);
   } else {
+    el.zeitraumVon.removeAttribute('min');
+    el.zeitraumBis.removeAttribute('min');
     el.zeitraumVon.removeAttribute('max');
     el.zeitraumBis.removeAttribute('max');
   }
@@ -412,8 +521,8 @@ function handleZeitraumAnwenden(e) {
     return;
   }
   const grenzen = ermittleDatengrenzen(ausgewaehlteStation);
-  if (grenzen && von.getTime() > grenzen.spaeteste.getTime()) {
-    zeigeZeitraumFehler('Für diesen Zeitraum liegt noch keine BSH-Vorhersage vor. Bitte ein früheres Datum wählen.');
+  if (grenzen && (von.getTime() > grenzen.spaeteste.getTime() || bis.getTime() < grenzen.frueheste.getTime())) {
+    zeigeZeitraumFehler('Für diesen Zeitraum liegen keine BSH-Gezeitendaten vor. Bitte ein anderes Datum wählen.');
     return;
   }
   eigenerZeitraum = { von, bis };
@@ -606,8 +715,17 @@ function ermittleRollierendesFenster(ereignisse, jetzt) {
 function renderHeuteListe(ereignisse, jetzt) {
   el.listContainer.innerHTML = '';
   el.listSection.hidden = false;
-  const anker = ermittleLetztesEreignis(ereignisse, jetzt);
-  const fenster = ermittleRollierendesFenster(ereignisse, jetzt);
+  // Tafel-Daten schließen die Lücke, wenn die Vorhersage keine bereits
+  // vergangenen Ereignisse des Tages enthält.
+  const tafel = gezeitenTafelFuer(ausgewaehlteStation);
+  const basis = tafel
+    ? mischeEreignisse(ereignisse, tafel.ereignisse, {
+        von: new Date(jetzt.getTime() - 24 * 3600000),
+        bis: new Date(jetzt.getTime() + 24 * 3600000),
+      })
+    : ereignisse;
+  const anker = ermittleLetztesEreignis(basis, jetzt);
+  const fenster = ermittleRollierendesFenster(basis, jetzt);
   const kombiniert = anker ? [anker, ...fenster] : fenster;
   if (kombiniert.length === 0) {
     el.listContainer.appendChild(baueLeereListenHinweis('Für diesen Zeitraum liegen keine Gezeiten in der BSH-Vorhersage vor.'));
@@ -656,10 +774,14 @@ function renderSucheTab() {
   }
 
   const zeitraum = berechneZeitraum(aktiverZeitraumTyp, jetzt, eigenerZeitraum);
-  const gefiltert = filtereEreignisseImZeitraum(ereignisse, zeitraum);
+  const tafel = gezeitenTafelFuer(ausgewaehlteStation);
+  const gefiltert = tafel
+    ? mischeEreignisse(ereignisse, tafel.ereignisse, zeitraum)
+    : filtereEreignisseImZeitraum(ereignisse, zeitraum);
   renderGezeitenListe(gefiltert, zeitraum, jetzt);
 
-  const hinweis = ermittleAbdeckungsHinweis(ereignisse, zeitraum);
+  // Mit Tafel ist der wählbare Zeitraum bereits auf die Datenabdeckung begrenzt.
+  const hinweis = tafel ? null : ermittleAbdeckungsHinweis(ereignisse, zeitraum);
   el.listHinweis.hidden = !hinweis;
   el.listHinweis.textContent = hinweis || '';
 }
@@ -668,6 +790,7 @@ function waehleStation(label) {
   ausgewaehlteStation = label;
   el.input.value = label;
   verstecke(el.results);
+  gezeitenTafelFuer(label); // Tafel im Hintergrund vorladen
   try {
     localStorage.setItem(STORAGE_KEY_STATION, label);
   } catch {
@@ -817,7 +940,10 @@ function oeffneFavoritenDialog(label) {
   const jetzt = new Date();
   const ereignisse = stationen.get(label)?.ereignisse || [];
   const zeitraum = { von: jetzt, bis: new Date(jetzt.getTime() + 5 * 86400000) };
-  const gefiltert = filtereEreignisseImZeitraum(ereignisse, zeitraum);
+  const tafel = gezeitenTafelFuer(label);
+  const gefiltert = tafel
+    ? mischeEreignisse(ereignisse, tafel.ereignisse, zeitraum)
+    : filtereEreignisseImZeitraum(ereignisse, zeitraum);
   el.favoritenDialogListe.innerHTML = '';
   el.favoritenDialogListe.appendChild(
     gefiltert.length > 0
@@ -849,6 +975,12 @@ function handleTiefgangEingabe() {
   const roh = el.brunsbuettelTfgInput.value;
   if (roh === '') {
     verstecke(el.brunsbuettelTfgFehler);
+    try {
+      localStorage.removeItem(STORAGE_KEY_TFG);
+    } catch {
+      // ignorieren
+    }
+    renderBrunsbuettelTab();
     return;
   }
   const wert = Number(roh);
@@ -861,6 +993,7 @@ function handleTiefgangEingabe() {
   const gerundet = Math.round(wert * 100) / 100;
   el.brunsbuettelTfgInput.value = gerundet.toFixed(2);
   speichereTiefgang(gerundet);
+  renderBrunsbuettelTab(); // Grenzlinie + befahrbares Fenster sofort neu zeichnen
 }
 
 function initBrunsbuettelTfg() {
@@ -869,20 +1002,65 @@ function initBrunsbuettelTfg() {
   el.brunsbuettelTfgInput.addEventListener('change', handleTiefgangEingabe);
 }
 
-function berechneChartFenster(jetzt) {
-  const von = startDesTages(jetzt);
-  const bis = endeDesTages(new Date(von.getTime() + 86400000));
-  return { von, bis };
+// Grundwert (m) je nach Jahreszeit: konstant 2,70 m bis 1. März, dann linear
+// ansteigend auf 3,30 m zum 30. September, ab Oktober konstant 3,30 m.
+function grundwertFuer(datum) {
+  const start = new Date(datum.getFullYear(), 2, 1); // 1. März
+  const ende = new Date(datum.getFullYear(), 8, 30); // 30. September
+  if (datum.getTime() <= start.getTime()) return GRUNDWERT_WINTER_M;
+  if (datum.getTime() >= ende.getTime()) return GRUNDWERT_HERBST_M;
+  const anteil = (datum.getTime() - start.getTime()) / (ende.getTime() - start.getTime());
+  return GRUNDWERT_WINTER_M + anteil * (GRUNDWERT_HERBST_M - GRUNDWERT_WINTER_M);
 }
 
-function berechneChartSkala(punkte) {
+// Grenzwert in cm über PNP: Grundwert (tagesabhängig) + Tiefgang (Usereingabe).
+// null, solange kein gültiger Tiefgang gespeichert ist.
+function schwelleFuerTag(tagDatum) {
+  const tfg = ladeTiefgang();
+  if (tfg == null || !istGueltigerTiefgang(tfg)) return null;
+  const tagMitte = new Date(tagDatum.getFullYear(), tagDatum.getMonth(), tagDatum.getDate(), 12);
+  return Math.round((grundwertFuer(tagMitte) + tfg) * 100);
+}
+
+function berechneChartFenster(jetzt, tag) {
+  const basis = tag === 'morgen' ? new Date(jetzt.getTime() + 86400000) : jetzt;
+  return { von: startDesTages(basis), bis: endeDesTages(basis) };
+}
+
+function berechneChartSkala(punkte, schwelle) {
   const werte = punkte.map((p) => p.wert);
-  let min = werte.length ? Math.min(...werte) : PNP_REFERENZ_CM - 100;
-  let max = werte.length ? Math.max(...werte) : PNP_REFERENZ_CM + 100;
-  min = Math.min(min, PNP_REFERENZ_CM - 20);
-  max = Math.max(max, PNP_REFERENZ_CM + 20);
-  const puffer = (max - min) * 0.1 || 10;
+  if (schwelle != null) werte.push(schwelle);
+  const min = Math.min(...werte);
+  const max = Math.max(...werte);
+  const puffer = (max - min) * 0.06 || 10;
   return { min: min - puffer, max: max + puffer };
+}
+
+// Zeitfenster, in denen die Kurve über dem Grenzwert liegt — Schnittpunkte
+// zwischen zwei Kurvenpunkten werden linear interpoliert.
+function ermittleBefahrbareFenster(punkte, schwelle) {
+  const fenster = [];
+  let beginn = null;
+  for (let i = 0; i < punkte.length; i++) {
+    const p = punkte[i];
+    const ueber = p.wert >= schwelle;
+    if (ueber && beginn === null) {
+      if (i === 0) {
+        beginn = p.zeit;
+      } else {
+        const v = punkte[i - 1];
+        const anteil = (schwelle - v.wert) / (p.wert - v.wert);
+        beginn = new Date(v.zeit.getTime() + anteil * (p.zeit.getTime() - v.zeit.getTime()));
+      }
+    } else if (!ueber && beginn !== null) {
+      const v = punkte[i - 1];
+      const anteil = (v.wert - schwelle) / (v.wert - p.wert);
+      fenster.push({ von: beginn, bis: new Date(v.zeit.getTime() + anteil * (p.zeit.getTime() - v.zeit.getTime())) });
+      beginn = null;
+    }
+  }
+  if (beginn !== null) fenster.push({ von: beginn, bis: punkte[punkte.length - 1].zeit });
+  return fenster;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -892,42 +1070,53 @@ function svgEl(tag, attrs) {
   return node;
 }
 
-function baueWasserstandsChart(punkte, von, bis) {
+function baueWasserstandsChart(punkte, von, bis, schwelle, fenster) {
   const breite = 640;
-  const hoehe = 240;
+  const hoehe = 260;
   const padLinks = 12;
-  const padRechts = 44;
-  const padOben = 10;
+  const padRechts = 46;
+  const padOben = 12;
   const padUnten = 28;
-  const skala = berechneChartSkala(punkte);
+  const skala = berechneChartSkala(punkte, schwelle);
   const x = (zeit) =>
     padLinks + ((zeit.getTime() - von.getTime()) / (bis.getTime() - von.getTime())) * (breite - padLinks - padRechts);
   const y = (wert) => padOben + (1 - (wert - skala.min) / (skala.max - skala.min)) * (hoehe - padOben - padUnten);
 
   const svg = svgEl('svg', { viewBox: `0 0 ${breite} ${hoehe}`, role: 'img', 'aria-label': 'Wasserstandskurve Brunsbüttel' });
 
-  svg.appendChild(
-    svgEl('line', {
-      x1: padLinks,
-      x2: breite - padRechts,
-      y1: y(PNP_REFERENZ_CM),
-      y2: y(PNP_REFERENZ_CM),
-      class: 'chart-referenzlinie',
-    }),
-  );
-  const refLabel = svgEl('text', { x: breite - padRechts + 4, y: y(PNP_REFERENZ_CM) + 3, class: 'chart-achse-text' });
-  refLabel.textContent = `PNP ${PNP_REFERENZ_CM}`;
-  svg.appendChild(refLabel);
+  // Befahrbare Fenster als hinterlegte Flächen (zuerst zeichnen, damit die Kurven darüber liegen)
+  for (const f of fenster) {
+    svg.appendChild(
+      svgEl('rect', {
+        x: x(f.von),
+        y: padOben,
+        width: Math.max(x(f.bis) - x(f.von), 1),
+        height: hoehe - padOben - padUnten,
+        class: 'chart-fenster',
+      }),
+    );
+  }
 
-  const refY = y(PNP_REFERENZ_CM);
+  // Grenzlinie: Grundwert + Tiefgang
+  let grenzY = null;
+  if (schwelle != null) {
+    grenzY = y(schwelle);
+    svg.appendChild(
+      svgEl('line', { x1: padLinks, x2: breite - padRechts, y1: grenzY, y2: grenzY, class: 'chart-grenzlinie' }),
+    );
+    const grenzLabel = svgEl('text', { x: breite - padRechts + 4, y: grenzY + 3, class: 'chart-achse-text chart-achse-text--grenze' });
+    grenzLabel.textContent = String(schwelle);
+    svg.appendChild(grenzLabel);
+  }
+
   for (const wert of [skala.min, (skala.min + skala.max) / 2, skala.max]) {
-    if (Math.abs(y(wert) - refY) < 10) continue; // Kollision mit dem PNP-Referenzlabel vermeiden
+    if (grenzY != null && Math.abs(y(wert) - grenzY) < 10) continue; // Kollision mit Grenz-Label vermeiden
     const t = svgEl('text', { x: breite - padRechts + 4, y: y(wert) + 3, class: 'chart-achse-text' });
     t.textContent = String(Math.round(wert));
     svg.appendChild(t);
   }
 
-  for (let ts = von.getTime(); ts <= bis.getTime(); ts += 6 * 3600000) {
+  for (let ts = von.getTime(); ts <= bis.getTime() + 1; ts += 3 * 3600000) {
     const zeit = new Date(ts);
     const t = svgEl('text', { x: x(zeit), y: hoehe - 4, class: 'chart-achse-text', 'text-anchor': 'middle' });
     t.textContent = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(zeit);
@@ -939,30 +1128,55 @@ function baueWasserstandsChart(punkte, von, bis) {
     const punkteStr = serie.map((p) => `${x(p.zeit)},${y(p.wert)}`).join(' ');
     return svgEl('polyline', { points: punkteStr, class: klasse, fill: 'none' });
   };
-  const messung = punkte.filter((p) => p.quelle === 'messung');
-  const vorhersage = punkte.filter((p) => p.quelle === 'vorhersage');
-  const lVorhersage = baueLinie(vorhersage, 'chart-linie chart-linie--vorhersage');
-  const lMessung = baueLinie(messung, 'chart-linie chart-linie--messung');
+  const lVorhersage = baueLinie(punkte.filter((p) => p.quelle === 'vorhersage'), 'chart-linie chart-linie--vorhersage');
+  const lMessung = baueLinie(punkte.filter((p) => p.quelle === 'messung'), 'chart-linie chart-linie--messung');
   if (lVorhersage) svg.appendChild(lVorhersage);
   if (lMessung) svg.appendChild(lMessung);
 
   return svg;
 }
 
+function formatiereUhrzeit(zeit) {
+  return new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(zeit);
+}
+
 function renderBrunsbuettelChart(jetzt) {
   el.brunsbuettelChartContainer.innerHTML = '';
+  el.brunsbuettelFensterInfo.textContent = '';
   const daten = stationen.get(BRUNSBUETTEL_LABEL);
   if (!daten || daten.kurve.length === 0) {
     el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für Brunsbüttel liegen aktuell keine Kurvendaten vor.'));
     return;
   }
-  const { von, bis } = berechneChartFenster(jetzt);
+  const { von, bis } = berechneChartFenster(jetzt, brunsbuettelTag);
   const punkte = daten.kurve.filter((p) => p.zeit.getTime() >= von.getTime() && p.zeit.getTime() <= bis.getTime());
   if (punkte.length === 0) {
-    el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für heute/morgen liegen keine Kurvendaten vor.'));
+    el.brunsbuettelChartContainer.appendChild(baueLeereListenHinweis('Für diesen Tag liegen keine Kurvendaten vor.'));
     return;
   }
-  el.brunsbuettelChartContainer.appendChild(baueWasserstandsChart(punkte, von, bis));
+
+  const schwelle = schwelleFuerTag(von);
+  const fenster = schwelle != null ? ermittleBefahrbareFenster(punkte, schwelle) : [];
+  el.brunsbuettelChartContainer.appendChild(baueWasserstandsChart(punkte, von, bis, schwelle, fenster));
+
+  if (schwelle == null) {
+    el.brunsbuettelFensterInfo.textContent = 'Tiefgang (Tfg) eingeben, um das befahrbare Fenster zu sehen.';
+  } else if (fenster.length === 0) {
+    el.brunsbuettelFensterInfo.textContent = `Kein befahrbares Fenster an diesem Tag (Grenze ${formatiereMeter(schwelle)}).`;
+  } else {
+    const zeiten = fenster.map((f) => `${formatiereUhrzeit(f.von)}–${formatiereUhrzeit(f.bis)}`).join(', ');
+    el.brunsbuettelFensterInfo.textContent = `Befahrbar (Grenze ${formatiereMeter(schwelle)}): ${zeiten}`;
+  }
+}
+
+function initBrunsbuettelTag() {
+  el.brunsbuettelTagButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      brunsbuettelTag = btn.dataset.tag;
+      el.brunsbuettelTagButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tag === brunsbuettelTag)));
+      renderBrunsbuettelTab();
+    });
+  });
 }
 
 function renderBrunsbuettelTab() {
@@ -1014,6 +1228,7 @@ async function init() {
   initZeitraumDialog();
   initFavoritenDialog();
   initBrunsbuettelTfg();
+  initBrunsbuettelTag();
 
   favoriten = ladeFavoriten();
 

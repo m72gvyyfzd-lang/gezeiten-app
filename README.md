@@ -13,8 +13,15 @@ keine npm-Pakete nötig. Das macht sie leicht verständlich und leicht anpassbar
 
 ## Wie funktioniert das?
 
-- Die Gezeitendaten kommen live vom **BSH** (Bundesamt für Seeschifffahrt und Hydrographie) —
-  kostenlos, ohne Anmeldung, öffentlich unter CC BY 4.0 lizenziert.
+- Die Gezeitendaten kommen vom **BSH** (Bundesamt für Seeschifffahrt und Hydrographie) —
+  kostenlos, ohne Anmeldung, öffentlich unter CC BY 4.0 lizenziert. Zwei Quellen ergänzen sich:
+  - **Wasserstandsvorhersage** (live abgefragt): wetterkorrigierte Wasserstände + Abweichungen,
+    deckt etwa die nächsten 6 Tage ab.
+  - **Astronomische Gezeitentafeln** (im Ordner `tides/` gespiegelt): HW/NW-Zeiten und -Höhen
+    für ganz 2026/2027, auch für vergangene Tage. Gespiegelt, weil `gezeiten.bsh.de` keine
+    direkten Browser-Abfragen von fremden Seiten erlaubt (CORS). Aktualisieren (z. B. wenn das
+    BSH ein neues Jahr veröffentlicht): `python3 scripts/aktualisiere-gezeitentafeln.py`
+    ausführen und danach in `sw.js` die `CACHE_NAME`-Version erhöhen.
 - `app.js` fragt diese Daten direkt im Browser ab (kein eigener Server nötig) und zeigt sie an.
 - `index.html` ist das Grundgerüst der Seite, `styles.css` das Aussehen.
 - `manifest.webmanifest` + `sw.js` (Service Worker) sorgen dafür, dass sich die App wie eine
@@ -72,9 +79,11 @@ der **nur den Ordner `gezeiten-app`** braucht (kein Build, kein Server nötig):
   durch eigene PNG-Dateien in den gleichen Größen (192×192, 512×512, 512×512 maskable,
   180×180 für `apple-touch-icon.png`).
 - **Zeitraum-Optionen** (3 Tage/1 Woche): `ZEITRAUM_TAGE` in `app.js`.
-- **Brunsbüttel-Tab**: feste Station über `BRUNSBUETTEL_LABEL`, Referenzlinie über `PNP_REFERENZ_CM`
-  in `app.js`. Das Tfg-Eingabefeld (Tiefgang) wird aktuell nur validiert und gespeichert, fließt
-  noch in keine Berechnung ein.
+- **Brunsbüttel-Tab**: feste Station über `BRUNSBUETTEL_LABEL` in `app.js`. Die Grenzlinie der
+  Kurve ist `Grundwert + Tiefgang (Tfg-Eingabe)`; der saisonale Grundwert (2,70 m bis 1. März,
+  linear bis 3,30 m am 30. September) steckt in `GRUNDWERT_WINTER_M`/`GRUNDWERT_HERBST_M` bzw.
+  `grundwertFuer()`. Zeiträume, in denen die Kurve über der Grenze liegt, werden als
+  „befahrbares Fenster" grün hinterlegt und unter der Grafik aufgelistet.
 
 ## Bekannte Grenzen
 
