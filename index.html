@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Gezeiten</title>
+    <title>Benni's Gezeiten App</title>
     <meta
       name="description"
       content="Aktuelle Gezeitenvorhersagen (Hochwasser/Niedrigwasser) für die deutsche Nordsee- und Ostseeküste."
@@ -15,14 +15,14 @@
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Gezeiten" />
+    <meta name="apple-mobile-web-app-title" content="Benni's Gezeiten App" />
     <meta name="theme-color" content="#0b3d63" />
 
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="app-header">
-      <h1><span aria-hidden="true">🌊</span> Gezeiten</h1>
+      <h1><span aria-hidden="true">🌊</span> Benni's Gezeiten App</h1>
     </header>
 
     <main class="app-main">
@@ -42,6 +42,7 @@
               spellcheck="false"
               placeholder="Ort suchen, z. B. Cuxhaven"
             />
+            <button type="button" id="station-clear" class="station-clear" aria-label="Eingabe löschen" hidden>✕</button>
             <ul id="station-results" class="station-results" hidden></ul>
           </div>
         </section>
