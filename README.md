@@ -21,7 +21,9 @@ keine npm-Pakete nötig. Das macht sie leicht verständlich und leicht anpassbar
     für ganz 2026/2027, auch für vergangene Tage. Gespiegelt, weil `gezeiten.bsh.de` keine
     direkten Browser-Abfragen von fremden Seiten erlaubt (CORS). Aktualisieren (z. B. wenn das
     BSH ein neues Jahr veröffentlicht): `python3 scripts/aktualisiere-gezeitentafeln.py`
-    ausführen und danach in `sw.js` die `CACHE_NAME`-Version erhöhen.
+    ausführen und danach in `sw.js` die `CACHE_NAME`-Version erhöhen (nur die Tafeln werden
+    „Cache zuerst" ausgeliefert — die App-Dateien selbst laden immer „Netz zuerst", Updates
+    kommen dort also automatisch an).
 - `app.js` fragt diese Daten direkt im Browser ab (kein eigener Server nötig) und zeigt sie an.
 - `index.html` ist das Grundgerüst der Seite, `styles.css` das Aussehen.
 - `manifest.webmanifest` + `sw.js` (Service Worker) sorgen dafür, dass sich die App wie eine

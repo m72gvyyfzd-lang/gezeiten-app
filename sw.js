@@ -1,7 +1,15 @@
-// Cached nur die App selbst (HTML/CSS/JS/Icons), damit die App auch offline
-// sofort öffnet. Die BSH-Live-Daten laufen bewusst NICHT über den Cache,
-// damit immer die aktuelle Vorhersage geladen wird, sobald Internet da ist.
-const CACHE_NAME = 'gezeiten-app-v4';
+// Cached nur die App selbst (HTML/CSS/JS/Icons/Gezeitentafeln), damit die App
+// auch offline sofort öffnet. Die BSH-Live-Daten laufen bewusst NICHT über den
+// Cache, damit immer die aktuelle Vorhersage geladen wird, sobald Internet da ist.
+//
+// Strategie:
+// - App-Shell (HTML/CSS/JS/...): NETZ ZUERST, Cache nur als Offline-Fallback —
+//   so kommen neue Versionen sofort an, ohne dass die Cache-Version erhöht
+//   werden muss.
+// - tides/ (astronomische Gezeitentafeln): CACHE ZUERST — die Daten sind fix;
+//   nach einem Lauf von scripts/aktualisiere-gezeitentafeln.py die
+//   CACHE_NAME-Version erhöhen, damit sie neu geladen werden.
+const CACHE_NAME = 'gezeiten-app-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -28,19 +36,25 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+function fetchUndCache(request) {
+  return fetch(request).then((response) => {
+    if (response.ok) {
+      const clone = response.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+    }
+    return response;
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || event.request.method !== 'GET') return;
 
-  event.respondWith(
-    caches.match(event.request).then(
-      (cached) =>
-        cached ||
-        fetch(event.request).then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        }),
-    ),
-  );
+  if (url.pathname.includes('/tides/')) {
+    // Gezeitentafeln: Cache zuerst (statische Daten)
+    event.respondWith(caches.match(event.request).then((cached) => cached || fetchUndCache(event.request)));
+  } else {
+    // App-Shell: Netz zuerst, Cache nur offline
+    event.respondWith(fetchUndCache(event.request).catch(() => caches.match(event.request)));
+  }
 });
