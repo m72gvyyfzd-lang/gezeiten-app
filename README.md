@@ -13,8 +13,15 @@ keine npm-Pakete nötig. Das macht sie leicht verständlich und leicht anpassbar
 
 ## Wie funktioniert das?
 
-- Die Gezeitendaten kommen live vom **BSH** (Bundesamt für Seeschifffahrt und Hydrographie) —
-  kostenlos, ohne Anmeldung, öffentlich unter CC BY 4.0 lizenziert.
+- Die Gezeitendaten kommen vom **BSH** (Bundesamt für Seeschifffahrt und Hydrographie) —
+  kostenlos, ohne Anmeldung, öffentlich unter CC BY 4.0 lizenziert. Zwei Quellen ergänzen sich:
+  - **Wasserstandsvorhersage** (live abgefragt): wetterkorrigierte Wasserstände + Abweichungen,
+    deckt etwa die nächsten 6 Tage ab.
+  - **Astronomische Gezeitentafeln** (im Ordner `tides/` gespiegelt): HW/NW-Zeiten und -Höhen
+    für ganz 2026/2027, auch für vergangene Tage. Gespiegelt, weil `gezeiten.bsh.de` keine
+    direkten Browser-Abfragen von fremden Seiten erlaubt (CORS). Aktualisieren (z. B. wenn das
+    BSH ein neues Jahr veröffentlicht): `python3 scripts/aktualisiere-gezeitentafeln.py`
+    ausführen und danach in `sw.js` die `CACHE_NAME`-Version erhöhen.
 - `app.js` fragt diese Daten direkt im Browser ab (kein eigener Server nötig) und zeigt sie an.
 - `index.html` ist das Grundgerüst der Seite, `styles.css` das Aussehen.
 - `manifest.webmanifest` + `sw.js` (Service Worker) sorgen dafür, dass sich die App wie eine

@@ -16,6 +16,13 @@ const STORAGE_KEY_TFG = 'gezeiten:tiefgang';
 const BRUNSBUETTEL_LABEL = 'Brunsbüttel, Elbe, Ost';
 const PNP_REFERENZ_CM = 450;
 
+// Gespiegelte astronomische Gezeitentafeln (siehe scripts/aktualisiere-gezeitentafeln.py):
+// decken ganz 2026/2027 ab, inkl. Vergangenheit — die Wasserstandsvorhersage ergänzt sie
+// dort, wo sie verfügbar ist (~6 Tage ab jetzt).
+const GEZEITENTAFEL_BASIS = 'tides';
+const GEZEITENTAFEL_OFFSET = '+01:00'; // Tafeln nutzen ganzjährig MEZ
+const MERGE_TOLERANZ_MS = 3 * 3600000; // Vorhersage- und Tafel-Ereignis gelten als dasselbe HW/NW
+
 const el = {
   input: document.getElementById('station-input'),
   results: document.getElementById('station-results'),
@@ -68,6 +75,13 @@ let aktiverZeitraumTyp = 'heute'; // 'heute' | '3tage' | '1woche' | 'eigen'
 let eigenerZeitraum = null; // {von: Date, bis: Date} | null — für Dialog-Vorbefüllung beim erneuten Öffnen
 let favoriten = new Set();
 let favoritenDialogLabel = null;
+
+/** @type {Map<string, string>|null} Stationsname -> seo_id der Gezeitentafel */
+let gezeitenTafelIndex = null;
+let gezeitenTafelIndexLaedt = false;
+/** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date, wert: number|null, delta: null}[], grenzen: {frueheste: Date, spaeteste: Date}}>} */
+const gezeitenTafeln = new Map();
+const gezeitenTafelnLaufend = new Set();
 
 // ---------- Daten laden (BSH) ----------
 
@@ -136,6 +150,90 @@ async function ladeVonBsh() {
     throw new Error('BSH-Antwort enthielt keine verwertbaren Stationsdaten.');
   }
   return neueStationen;
+}
+
+// ---------- Gezeitentafeln (gespiegelt, siehe tides/) ----------
+
+function renderNachDatenupdate() {
+  if (ausgewaehlteStation) renderSucheTab();
+  renderFavoritenTab();
+}
+
+async function ladeGezeitenTafelIndex() {
+  if (gezeitenTafelIndex || gezeitenTafelIndexLaedt) return;
+  gezeitenTafelIndexLaedt = true;
+  try {
+    const response = await fetch(`${GEZEITENTAFEL_BASIS}/index.json`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const eintraege = await response.json();
+    gezeitenTafelIndex = new Map(eintraege.map((e) => [e.name, e.seo_id]));
+    renderNachDatenupdate();
+  } catch (err) {
+    console.warn('Gezeitentafel-Index nicht ladbar:', err);
+  } finally {
+    gezeitenTafelIndexLaedt = false;
+  }
+}
+
+async function ladeGezeitenTafel(seoId) {
+  if (gezeitenTafeln.has(seoId) || gezeitenTafelnLaufend.has(seoId)) return;
+  gezeitenTafelnLaufend.add(seoId);
+  try {
+    const response = await fetch(`${GEZEITENTAFEL_BASIS}/${seoId}.json`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const roh = await response.json();
+    const ereignisse = roh.ereignisse
+      .map(([zeitText, typ, hoehe]) => ({
+        typ,
+        zeit: new Date(`${zeitText.replace(' ', 'T')}${GEZEITENTAFEL_OFFSET}`),
+        wert: hoehe != null && Number.isFinite(Number(hoehe)) ? Number(hoehe) : null,
+        delta: null,
+      }))
+      .filter((e) => (e.typ === 'HW' || e.typ === 'NW') && !Number.isNaN(e.zeit.getTime()));
+    if (ereignisse.length === 0) return;
+    gezeitenTafeln.set(seoId, {
+      ereignisse,
+      grenzen: { frueheste: ereignisse[0].zeit, spaeteste: ereignisse[ereignisse.length - 1].zeit },
+    });
+    renderNachDatenupdate();
+  } catch (err) {
+    console.warn(`Gezeitentafel für ${seoId} nicht ladbar:`, err);
+  } finally {
+    gezeitenTafelnLaufend.delete(seoId);
+  }
+}
+
+// Liefert die Tafel synchron aus dem Cache (oder null) und stößt bei Bedarf das
+// Nachladen an — nach dem Laden wird automatisch neu gerendert.
+function gezeitenTafelFuer(label) {
+  if (!label) return null;
+  if (!gezeitenTafelIndex) {
+    ladeGezeitenTafelIndex();
+    return null;
+  }
+  const seoId = gezeitenTafelIndex.get(label);
+  if (!seoId) return null;
+  const tafel = gezeitenTafeln.get(seoId);
+  if (tafel) return tafel;
+  ladeGezeitenTafel(seoId);
+  return null;
+}
+
+// Tafel-Ereignisse füllen die Lücken der Vorhersage: wo beide dasselbe HW/NW
+// beschreiben (gleicher Typ, Zeitabstand unter der Toleranz), gewinnt die
+// Vorhersage (wetterkorrigierter Wert + Abweichung).
+function mischeEreignisse(vorhersage, tafel, zeitraum) {
+  const inZeitraum = (e) => e.zeit.getTime() >= zeitraum.von.getTime() && e.zeit.getTime() <= zeitraum.bis.getTime();
+  const vorhersageImZeitraum = vorhersage.filter(inZeitraum);
+  const ergaenzung = tafel
+    .filter(inZeitraum)
+    .filter(
+      (t) =>
+        !vorhersageImZeitraum.some(
+          (v) => v.typ === t.typ && Math.abs(v.zeit.getTime() - t.zeit.getTime()) <= MERGE_TOLERANZ_MS,
+        ),
+    );
+  return [...vorhersageImZeitraum, ...ergaenzung].sort((a, b) => a.zeit.getTime() - b.zeit.getTime());
 }
 
 // ---------- Speicher/Storage ----------
@@ -350,13 +448,17 @@ function ermittleAbdeckungsHinweis(ereignisse, zeitraum) {
 }
 
 function ermittleDatengrenzen(label) {
+  // Mit Gezeitentafel: kompletter Tafel-Zeitraum (ganz 2026/2027, inkl. Vergangenheit).
+  const tafel = gezeitenTafelFuer(label);
+  if (tafel) return tafel.grenzen;
+  // Ohne Tafel: nur das Vorhersagefenster ab heute.
   const daten = stationen.get(label);
   if (!daten) return null;
   const zeiten = [];
   for (const e of daten.ereignisse) zeiten.push(e.zeit.getTime());
   for (const p of daten.kurve) zeiten.push(p.zeit.getTime());
   if (zeiten.length === 0) return null;
-  return { spaeteste: new Date(Math.max(...zeiten)) };
+  return { frueheste: startDesTages(new Date()), spaeteste: new Date(Math.max(...zeiten)) };
 }
 
 function zuDateInputWert(datum) {
@@ -372,14 +474,15 @@ function ausDateInputWert(text) {
 }
 
 function oeffneZeitraumDialog() {
-  const heute = startDesTages(new Date());
-  el.zeitraumVon.min = zuDateInputWert(heute);
-  el.zeitraumBis.min = zuDateInputWert(heute);
   const grenzen = ermittleDatengrenzen(ausgewaehlteStation);
   if (grenzen) {
+    el.zeitraumVon.min = zuDateInputWert(grenzen.frueheste);
+    el.zeitraumBis.min = zuDateInputWert(grenzen.frueheste);
     el.zeitraumVon.max = zuDateInputWert(grenzen.spaeteste);
     el.zeitraumBis.max = zuDateInputWert(grenzen.spaeteste);
   } else {
+    el.zeitraumVon.removeAttribute('min');
+    el.zeitraumBis.removeAttribute('min');
     el.zeitraumVon.removeAttribute('max');
     el.zeitraumBis.removeAttribute('max');
   }
@@ -412,8 +515,8 @@ function handleZeitraumAnwenden(e) {
     return;
   }
   const grenzen = ermittleDatengrenzen(ausgewaehlteStation);
-  if (grenzen && von.getTime() > grenzen.spaeteste.getTime()) {
-    zeigeZeitraumFehler('Für diesen Zeitraum liegt noch keine BSH-Vorhersage vor. Bitte ein früheres Datum wählen.');
+  if (grenzen && (von.getTime() > grenzen.spaeteste.getTime() || bis.getTime() < grenzen.frueheste.getTime())) {
+    zeigeZeitraumFehler('Für diesen Zeitraum liegen keine BSH-Gezeitendaten vor. Bitte ein anderes Datum wählen.');
     return;
   }
   eigenerZeitraum = { von, bis };
@@ -606,8 +709,17 @@ function ermittleRollierendesFenster(ereignisse, jetzt) {
 function renderHeuteListe(ereignisse, jetzt) {
   el.listContainer.innerHTML = '';
   el.listSection.hidden = false;
-  const anker = ermittleLetztesEreignis(ereignisse, jetzt);
-  const fenster = ermittleRollierendesFenster(ereignisse, jetzt);
+  // Tafel-Daten schließen die Lücke, wenn die Vorhersage keine bereits
+  // vergangenen Ereignisse des Tages enthält.
+  const tafel = gezeitenTafelFuer(ausgewaehlteStation);
+  const basis = tafel
+    ? mischeEreignisse(ereignisse, tafel.ereignisse, {
+        von: new Date(jetzt.getTime() - 24 * 3600000),
+        bis: new Date(jetzt.getTime() + 24 * 3600000),
+      })
+    : ereignisse;
+  const anker = ermittleLetztesEreignis(basis, jetzt);
+  const fenster = ermittleRollierendesFenster(basis, jetzt);
   const kombiniert = anker ? [anker, ...fenster] : fenster;
   if (kombiniert.length === 0) {
     el.listContainer.appendChild(baueLeereListenHinweis('Für diesen Zeitraum liegen keine Gezeiten in der BSH-Vorhersage vor.'));
@@ -656,10 +768,14 @@ function renderSucheTab() {
   }
 
   const zeitraum = berechneZeitraum(aktiverZeitraumTyp, jetzt, eigenerZeitraum);
-  const gefiltert = filtereEreignisseImZeitraum(ereignisse, zeitraum);
+  const tafel = gezeitenTafelFuer(ausgewaehlteStation);
+  const gefiltert = tafel
+    ? mischeEreignisse(ereignisse, tafel.ereignisse, zeitraum)
+    : filtereEreignisseImZeitraum(ereignisse, zeitraum);
   renderGezeitenListe(gefiltert, zeitraum, jetzt);
 
-  const hinweis = ermittleAbdeckungsHinweis(ereignisse, zeitraum);
+  // Mit Tafel ist der wählbare Zeitraum bereits auf die Datenabdeckung begrenzt.
+  const hinweis = tafel ? null : ermittleAbdeckungsHinweis(ereignisse, zeitraum);
   el.listHinweis.hidden = !hinweis;
   el.listHinweis.textContent = hinweis || '';
 }
@@ -668,6 +784,7 @@ function waehleStation(label) {
   ausgewaehlteStation = label;
   el.input.value = label;
   verstecke(el.results);
+  gezeitenTafelFuer(label); // Tafel im Hintergrund vorladen
   try {
     localStorage.setItem(STORAGE_KEY_STATION, label);
   } catch {
@@ -817,7 +934,10 @@ function oeffneFavoritenDialog(label) {
   const jetzt = new Date();
   const ereignisse = stationen.get(label)?.ereignisse || [];
   const zeitraum = { von: jetzt, bis: new Date(jetzt.getTime() + 5 * 86400000) };
-  const gefiltert = filtereEreignisseImZeitraum(ereignisse, zeitraum);
+  const tafel = gezeitenTafelFuer(label);
+  const gefiltert = tafel
+    ? mischeEreignisse(ereignisse, tafel.ereignisse, zeitraum)
+    : filtereEreignisseImZeitraum(ereignisse, zeitraum);
   el.favoritenDialogListe.innerHTML = '';
   el.favoritenDialogListe.appendChild(
     gefiltert.length > 0
