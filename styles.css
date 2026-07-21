@@ -717,6 +717,16 @@ body {
   margin-top: 0.8rem;
 }
 
+.brunsbuettel-update {
+  width: 100%;
+  margin-top: 0.6rem;
+}
+
+.brunsbuettel-update:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 #brunsbuettel-chart-container svg {
   width: 100%;
   height: auto;

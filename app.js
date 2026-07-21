@@ -68,6 +68,7 @@ const el = {
   brunsbuettelChartContainer: document.getElementById('brunsbuettel-chart-container'),
   brunsbuettelTagButtons: document.querySelectorAll('.brunsbuettel-tag-btn'),
   brunsbuettelErgebnis: document.getElementById('brunsbuettel-ergebnis'),
+  brunsbuettelUpdate: document.getElementById('brunsbuettel-update'),
 };
 
 /** @type {Map<string, {ereignisse: {typ: 'HW'|'NW', zeit: Date, wert: number|null, delta: string|null}[], kurve: {zeit: Date, wert: number, quelle: 'messung'|'vorhersage'}[], mhw: number|null, mnw: number|null}>} */
@@ -1160,11 +1161,11 @@ function renderBrunsbuettelErgebnis(schwelle, fenster) {
     div.append(dt, dd);
     el.brunsbuettelErgebnis.appendChild(div);
   };
-  zeile('PNP (Tfg + Grundwert)', schwelle != null ? formatiereMeter(schwelle) : '—');
+  zeile('Pegelgrenze', schwelle != null ? formatiereMeter(schwelle) : '—');
   const anzahl = Math.max(2, fenster.length);
   for (let i = 0; i < anzahl; i++) {
     const f = fenster[i];
-    zeile(`Passage ${i + 1}`, f ? `${formatiereUhrzeit(f.von)} – ${formatiereUhrzeit(f.bis)}` : '—');
+    zeile(`${i + 1}. Passagezeit:`, f ? `${formatiereUhrzeit(f.von)} – ${formatiereUhrzeit(f.bis)}` : '—');
   }
 }
 
@@ -1200,6 +1201,21 @@ function initBrunsbuettelTag() {
       el.brunsbuettelTagButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tag === brunsbuettelTag)));
       renderBrunsbuettelTab();
     });
+  });
+}
+
+function initBrunsbuettelUpdate() {
+  el.brunsbuettelUpdate.addEventListener('click', async () => {
+    el.brunsbuettelUpdate.disabled = true;
+    const beschriftung = el.brunsbuettelUpdate.textContent;
+    el.brunsbuettelUpdate.textContent = 'Aktualisiere …';
+    try {
+      await aktualisiereDaten({ zeigeFehler: true }); // holt frische BSH-Daten
+      renderBrunsbuettelTab();
+    } finally {
+      el.brunsbuettelUpdate.textContent = beschriftung;
+      el.brunsbuettelUpdate.disabled = false;
+    }
   });
 }
 
@@ -1253,6 +1269,7 @@ async function init() {
   initFavoritenDialog();
   initBrunsbuettelTfg();
   initBrunsbuettelTag();
+  initBrunsbuettelUpdate();
 
   favoriten = ladeFavoriten();
 
